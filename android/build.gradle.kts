@@ -1,48 +1,40 @@
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
+plugins {
+    id("com.android.application")
+    id("dev.flutter.flutter-gradle-plugin")
+}
+android {
+    namespace = "com.example.media"
+    compileSdk = 36
+    ndkVersion = flutter.ndkVersion
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
-}
-
-val newBuildDir: Directory =
-    rootProject.layout.buildDirectory
-        .dir("../../build")
-        .get()
-rootProject.layout.buildDirectory.value(newBuildDir)
-
-subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
-    project.layout.buildDirectory.value(newSubprojectBuildDir)
-}
-
-subprojects {
-    project.evaluationDependsOn(":app")
-}
-
-// ✅ FORCER compileSdk = 36 POUR TOUS LES SOUS-PROJETS (PLUGINS), SAUF "app"
-subprojects {
-    if (project.name == "app") return@subprojects
-
-    afterEvaluate {
-        if (project.hasProperty("android")) {
-            try {
-                val android = project.extensions.getByName("android")
-                when (android) {
-                    is com.android.build.api.dsl.LibraryExtension -> {
-                        android.compileSdk = 36
-                    }
-                    is com.android.build.api.dsl.ApplicationExtension -> {
-                        android.compileSdk = 36
-                    }
-                }
-            } catch (e: Exception) {
-                // Ignorer les erreurs si le plugin n'a pas la configuration android
-            }
+    defaultConfig {
+        applicationId = "com.example.media"
+        minSdk = flutter.minSdkVersion
+        targetSdk = 36
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+        multiDexEnabled = true
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+flutter {
+    source = "../.."
+}
 
-tasks.register<Delete>("clean") {
-    delete(rootProject.layout.buildDirectory)
+dependencies {
+    implementation("androidx.multidex:multidex:2.0.1")
 }
