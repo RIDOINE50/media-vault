@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-// ❌ SUPPRIME CETTE LIGNE
-// import 'package:device_preview/device_preview.dart';
 import 'screens/local_files_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/downloaded_screen.dart';
@@ -48,7 +46,6 @@ void main() async {
   audioService.databaseService = databaseService;
   await audioService.init();
 
-  // ✅ LANCE L'APP NORMALEMENT (SANS DEVICE PREVIEW)
   runApp(
     MultiProvider(
       providers: [
@@ -83,15 +80,22 @@ class _MediaVaultAppState extends State<MediaVaultApp> {
   Future<void> _initializeApp() async {
     await _connectivityService.init();
 
-    // ✅ ATTEND LES PERMISSIONS
-    bool permissions = await PermissionService.requestAllPermissions();
+    // ✅ TIMEOUT DE 3 SECONDES - PASSE QUAND MÊME APRÈS
+    bool permissions;
+    try {
+      permissions = await PermissionService.requestAllPermissions()
+          .timeout(const Duration(seconds: 3), onTimeout: () => false);
+    } catch (e) {
+      print('⚠️ Erreur permissions: $e');
+      permissions = false;
+    }
 
     if (!mounted) return;
 
     final audioService = Provider.of<AudioService>(context, listen: false);
 
     setState(() {
-      _permissionsGranted = permissions;
+      _permissionsGranted = true; // ✅ FORCE LE PASSAGE TOUJOURS
       _screens.clear();
       _screens.addAll([
         LocalFilesScreen(audioService: audioService),
@@ -119,10 +123,6 @@ class _MediaVaultAppState extends State<MediaVaultApp> {
           title: 'MediaVault',
           debugShowCheckedModeBanner: false,
           theme: settings.currentTheme,
-          // ❌ SUPPRIME CES LIGNES
-          // locale: DevicePreview.locale(context),
-          // builder: DevicePreview.appBuilder,
-          // ✅ UTILISE LE BUILD NORMAL
           builder: (context, child) => child!,
           home: _permissionsGranted
               ? _buildMainScreen(audioService)
@@ -203,6 +203,14 @@ class _MediaVaultAppState extends State<MediaVaultApp> {
                     style: TextStyle(
                       fontSize: 16,
                       color: Colors.grey[400],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Passage automatique dans 3 secondes...',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[500],
                     ),
                   ),
                 ],
