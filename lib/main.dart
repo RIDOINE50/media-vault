@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:device_preview/device_preview.dart';
+// ❌ SUPPRIME CETTE LIGNE
+// import 'package:device_preview/device_preview.dart';
 import 'screens/local_files_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/downloaded_screen.dart';
@@ -26,6 +27,7 @@ void main() async {
   await Hive.openBox('search_history');
   await Hive.openBox('playback_positions');
   await Hive.openBox('custom_albums');
+  
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -46,17 +48,15 @@ void main() async {
   audioService.databaseService = databaseService;
   await audioService.init();
 
+  // ✅ LANCE L'APP NORMALEMENT (SANS DEVICE PREVIEW)
   runApp(
-    DevicePreview(
-      enabled: true,
-      builder: (context) => MultiProvider(
-        providers: [
-          ChangeNotifierProvider.value(value: settingsService),
-          Provider.value(value: databaseService),
-          Provider.value(value: audioService),
-        ],
-        child: const MediaVaultApp(),
-      ),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: settingsService),
+        Provider.value(value: databaseService),
+        Provider.value(value: audioService),
+      ],
+      child: const MediaVaultApp(),
     ),
   );
 }
@@ -83,6 +83,7 @@ class _MediaVaultAppState extends State<MediaVaultApp> {
   Future<void> _initializeApp() async {
     await _connectivityService.init();
 
+    // ✅ ATTEND LES PERMISSIONS
     bool permissions = await PermissionService.requestAllPermissions();
 
     if (!mounted) return;
@@ -118,8 +119,11 @@ class _MediaVaultAppState extends State<MediaVaultApp> {
           title: 'MediaVault',
           debugShowCheckedModeBanner: false,
           theme: settings.currentTheme,
-          locale: DevicePreview.locale(context),
-          builder: DevicePreview.appBuilder,
+          // ❌ SUPPRIME CES LIGNES
+          // locale: DevicePreview.locale(context),
+          // builder: DevicePreview.appBuilder,
+          // ✅ UTILISE LE BUILD NORMAL
+          builder: (context, child) => child!,
           home: _permissionsGranted
               ? _buildMainScreen(audioService)
               : _buildPermissionScreen(),
