@@ -1,4 +1,4 @@
-package com.mediavault
+package com.example.media  // ✅ CORRIGÉ
 
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
