@@ -1,0 +1,56 @@
+name: media
+description: "MediaVault - Lecteur Audio & Vidéo avec Téléchargement YouTube"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI & Icones
+  cupertino_icons: ^1.0.8
+
+  # State Management
+  provider: ^6.1.1
+
+  # Sauvegarde locale
+  shared_preferences: ^2.2.0
+
+  # Audio & Vidéo
+  just_audio: ^0.9.40
+  audio_service: ^0.18.15
+  video_player: ^2.9.2
+  
+  # Fichiers locaux
+  share_plus: ^10.0.0
+  
+  # YouTube
+  youtube_explode_dart: ^2.3.6
+
+  # Réseau & Stockage
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  connectivity_plus: ^6.1.0
+  path_provider: ^2.1.5
+  http: ^1.2.2
+
+  # Permissions
+  permission_handler: ^12.0.3
+
+  # UI Utilitaires
+  cached_network_image: ^3.4.1
+  shimmer: ^3.0.0
+  file_picker: ^8.1.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  device_preview: ^1.2.0
+
+flutter:
+  uses-material-design: true
