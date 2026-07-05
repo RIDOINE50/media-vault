@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/media_file.dart';
 
@@ -13,9 +14,9 @@ class FileService {
     '3gp', 'ts', 'm2ts', 'mpg', 'mpeg', 'vob', 'ogv'
   ];
 
-  // ✅ DOSSIERS À EXCLURE (système, cache, etc.)
   static const List<String> excludedDirs = [
-    'Android',
+    'Android/data',
+    'Android/obb',
     '.thumbnails',
     '.Trash',
     'LOST.DIR',
@@ -32,20 +33,83 @@ class FileService {
     'DCIM/.thumbnails',
   ];
 
+  // ✅ CHARGER DEPUIS LE CACHE
+  Future<List<MediaFile>> loadFromCache() async {
+    try {
+      final box = await Hive.openBox('file_cache');
+      final cachedData = box.get('scanned_files');
+      
+      if (cachedData != null && cachedData is List) {
+        print('✅ Cache trouvé: ${cachedData.length} fichiers');
+        return cachedData.map((data) {
+          return MediaFile.fromLocal(
+            id: data['id'],
+            title: data['title'],
+            artist: data['artist'],
+            album: data['album'],
+            path: data['path'],
+            duration: Duration(milliseconds: data['duration_ms'] ?? 0),
+            format: data['format'],
+            isVideo: data['is_video'] ?? false,
+          );
+        }).toList();
+      }
+    } catch (e) {
+      print('⚠️ Erreur lecture cache: $e');
+    }
+    
+    return [];
+  }
+
+  // ✅ SAUVEGARDER DANS LE CACHE
+  Future<void> saveToCache(List<MediaFile> files) async {
+    try {
+      final box = await Hive.openBox('file_cache');
+      final cacheData = files.map((file) {
+        return {
+          'id': file.id,
+          'title': file.title,
+          'artist': file.artist,
+          'album': file.album,
+          'path': file.path,
+          'duration_ms': file.duration.inMilliseconds,
+          'format': file.format,
+          'is_video': file.isVideo,
+        };
+      }).toList();
+      
+      await box.put('scanned_files', cacheData);
+      print('✅ Cache sauvegardé: ${files.length} fichiers');
+    } catch (e) {
+      print('⚠️ Erreur sauvegarde cache: $e');
+    }
+  }
+
+  // ✅ VIDER LE CACHE
+  Future<void> clearCache() async {
+    try {
+      final box = await Hive.openBox('file_cache');
+      await box.delete('scanned_files');
+      print('️ Cache vidé');
+    } catch (e) {
+      print('⚠️ Erreur vidage cache: $e');
+    }
+  }
+
   Future<Duration> _getAudioDuration(String filePath) async {
     try {
       final player = AudioPlayer();
-      await player.setFilePath(filePath);
-      final duration = player.duration ?? Duration.zero;
+      final duration = await player.setFilePath(filePath)
+          .timeout(const Duration(seconds: 2), onTimeout: () => null);
+      
+      final result = player.duration ?? Duration.zero;
       await player.dispose();
-      return duration;
+      return result;
     } catch (e) {
-      print('⚠️ Erreur lecture durée: $e');
       return Duration.zero;
     }
   }
 
-  // ✅ VÉRIFIER SI UN DOSSIER DOIT ÊTRE EXCLU
   bool _isExcluded(String path) {
     final lowerPath = path.toLowerCase();
     for (var excluded in excludedDirs) {
@@ -56,19 +120,27 @@ class FileService {
     return false;
   }
 
-  Future<List<MediaFile>> scanAllFiles() async {
+  // ✅ SCAN COMPLET AVEC CACHE
+  Future<List<MediaFile>> scanAllFiles({bool forceRescan = false}) async {
+    // ✅ Si pas de rescan forcé, charger depuis le cache
+    if (!forceRescan) {
+      final cached = await loadFromCache();
+      if (cached.isNotEmpty) {
+        return cached;
+      }
+    }
+    
+    print('🔄 Scan complet en cours...');
     List<MediaFile> allFiles = [];
     
-    // ✅ SCANNER TOUT LE STOCKAGE PRINCIPAL
     final rootDir = Directory('/storage/emulated/0');
     
     if (await rootDir.exists()) {
-      print('📱 Scan complet de: ${rootDir.path}');
-      final files = await _scanDirectoryRecursive(rootDir, depth: 0, maxDepth: 10);
+      print('📱 Scan de: ${rootDir.path}');
+      final files = await _scanDirectoryRecursive(rootDir, depth: 0, maxDepth: 15);
       allFiles.addAll(files);
     } else {
-      print('⚠️ Dossier principal introuvable, scan des dossiers connus');
-      // Fallback : dossiers connus
+      print('⚠️ Dossier principal introuvable');
       final fallbackDirs = [
         '/storage/emulated/0/Music',
         '/storage/emulated/0/Download',
@@ -82,29 +154,30 @@ class FileService {
       for (var dirPath in fallbackDirs) {
         final dir = Directory(dirPath);
         if (await dir.exists()) {
-          final files = await _scanDirectoryRecursive(dir, depth: 0, maxDepth: 10);
+          final files = await _scanDirectoryRecursive(dir, depth: 0, maxDepth: 15);
           allFiles.addAll(files);
         }
       }
     }
     
-    // ✅ SUPPRIMER LES DOUBLONS
     final uniqueFiles = <String, MediaFile>{};
     for (var file in allFiles) {
       uniqueFiles[file.path] = file;
     }
     
-    print('✅ ${uniqueFiles.length} fichiers uniques trouvés au total');
+    print('✅ ${uniqueFiles.length} fichiers trouvés');
+    
+    // ✅ Sauvegarder dans le cache
+    await saveToCache(uniqueFiles.values.toList());
+    
     return uniqueFiles.values.toList();
   }
 
-  // ✅ SCAN RÉCURSIF AVEC PROFONDEUR MAXIMALE
   Future<List<MediaFile>> _scanDirectoryRecursive(Directory dir, {required int depth, required int maxDepth}) async {
     List<MediaFile> files = [];
     
     if (depth > maxDepth) return files;
     
-    // Exclure les dossiers système
     if (_isExcluded(dir.path)) return files;
     
     try {
@@ -112,7 +185,6 @@ class FileService {
       
       for (var entity in entities) {
         if (entity is Directory) {
-          // Scanner les sous-dossiers
           final subFiles = await _scanDirectoryRecursive(entity, depth: depth + 1, maxDepth: maxDepth);
           files.addAll(subFiles);
         } 
@@ -120,10 +192,8 @@ class FileService {
           final path = entity.path;
           final fileName = path.split(Platform.pathSeparator).last;
           
-          // Ignorer les fichiers cachés
           if (fileName.startsWith('.')) continue;
           
-          // Récupérer l'extension
           final dotIndex = fileName.lastIndexOf('.');
           if (dotIndex == -1) continue;
           final extension = fileName.substring(dotIndex + 1).toLowerCase();
@@ -132,7 +202,6 @@ class FileService {
           final isAudio = audioExtensions.contains(extension);
           
           if (isVideo || isAudio) {
-            // Vérifier que le fichier n'est pas vide
             try {
               final stat = await entity.stat();
               if (stat.size <= 0) continue;
@@ -143,7 +212,6 @@ class FileService {
             String title = fileName.substring(0, dotIndex);
             String artist = 'Inconnu';
 
-            // Parser "Artiste - Titre"
             if (title.contains(' - ')) {
               final firstDashIndex = title.indexOf(' - ');
               artist = title.substring(0, firstDashIndex).trim();
@@ -161,9 +229,6 @@ class FileService {
             if (title.isEmpty) title = fileName;
             
             Duration duration = Duration.zero;
-            if (isAudio) {
-              duration = await _getAudioDuration(path);
-            }
             
             files.add(MediaFile.fromLocal(
               id: path.hashCode.toString(),
@@ -179,8 +244,7 @@ class FileService {
         }
       }
     } catch (e) {
-      // Ignorer les erreurs de permission sur certains dossiers
-      print('⚠️ Impossible de scanner: ${dir.path} ($e)');
+      print('⚠️ Impossible de scanner: ${dir.path}');
     }
     
     return files;

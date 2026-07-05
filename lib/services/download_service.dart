@@ -50,13 +50,10 @@ class DownloadService {
     
     try {
       if (!_downloadDir.existsSync()) {
-        print('⚠️ Dossier inexistant: ${_downloadDir.path}');
         return files;
       }
 
       final entities = _downloadDir.listSync();
-      print('📁 Scan du dossier: ${_downloadDir.path}');
-      print('📁 ${entities.length} éléments trouvés');
       
       for (var entity in entities) {
         if (entity is File) {
@@ -64,24 +61,13 @@ class DownloadService {
           final fileName = path.split(Platform.pathSeparator).last;
           final extension = fileName.split('.').last.toLowerCase();
           
-          print('🔍 Vérification: $fileName (.$extension)');
-          
           final isVideo = videoExtensions.contains(extension);
           final isAudio = audioExtensions.contains(extension);
-          
-          print('🎵 isAudio: $isAudio, 🎬 isVideo: $isVideo');
           
           if (isVideo || isAudio) {
             try {
               final stat = await entity.stat();
-              final fileSize = stat.size;
-              
-              print('📊 Taille: $fileSize bytes');
-              
-              if (fileSize <= 0) {
-                print('⚠️ Fichier vide ignoré: $fileName');
-                continue;
-              }
+              if (stat.size <= 0) continue;
               
               String title = fileName.replaceAll('.$extension', '');
               String artist = 'Artiste inconnu';
@@ -108,22 +94,19 @@ class DownloadService {
                   artist: artist,
                   album: 'Téléchargements',
                   path: path,
-                  duration: Duration.zero, // Sera extrait par le lecteur
+                  duration: Duration.zero,
                   format: extension,
-                  isVideo: isVideo, // ✅ IMPORTANT POUR LA LECTURE
+                  isVideo: isVideo,
                   downloadDate: stat.modified,
                   isFromYouTube: true,
                 ));
-                print('✅ Fichier ajouté: $title');
               }
             } catch (e) {
-              print('❌ Erreur lecture fichier: $e');
+              continue;
             }
           }
         }
       }
-      
-      print('✅ ${files.length} fichiers valides trouvés');
     } catch (e) {
       print('❌ Erreur scan: $e');
     }
@@ -137,7 +120,7 @@ class DownloadService {
     required void Function(double progress) onProgress,
   }) async {
     try {
-      print('🎬 Début téléchargement: $videoId (audio: $isAudioOnly)');
+      print('🎬 Début téléchargement: $videoId');
       
       final video = await yt.videos.get(videoId);
       final title = video.title.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
@@ -163,17 +146,19 @@ class DownloadService {
         await for (final data in stream) {
           fileStream.add(data);
           downloadedBytes += data.length;
-          onProgress(downloadedBytes / totalBytes);
+          
+          double progress = downloadedBytes / totalBytes;
+          print('📥 Progress: ${(progress * 100).toStringAsFixed(1)}%');
+          onProgress(progress);
         }
         
         await fileStream.flush();
         await fileStream.close();
         
-        // ✅ VÉRIFICATION APRÈS TÉLÉCHARGEMENT
         await Future.delayed(const Duration(milliseconds: 500));
         
         if (!file.existsSync()) {
-          print('❌ Fichier non créé: $filePath');
+          print('❌ Fichier non créé');
           return null;
         }
         
@@ -181,12 +166,12 @@ class DownloadService {
         print('📊 Taille finale: $finalSize bytes');
         
         if (finalSize <= 0) {
-          print('❌ Fichier vide: $filePath');
+          print('❌ Fichier vide');
           await file.delete();
           return null;
         }
         
-        print('✅ Audio terminé: $filePath (${finalSize} bytes)');
+        print('✅ Audio terminé: $filePath');
         return filePath;
         
       } else {
@@ -208,17 +193,18 @@ class DownloadService {
         await for (final data in stream) {
           fileStream.add(data);
           downloadedBytes += data.length;
-          onProgress(downloadedBytes / totalBytes);
+          
+          double progress = downloadedBytes / totalBytes;
+          onProgress(progress);
         }
         
         await fileStream.flush();
         await fileStream.close();
         
-        // ✅ VÉRIFICATION APRÈS TÉLÉCHARGEMENT
         await Future.delayed(const Duration(milliseconds: 500));
         
         if (!file.existsSync()) {
-          print('❌ Fichier non créé: $filePath');
+          print('❌ Fichier non créé');
           return null;
         }
         
@@ -226,18 +212,18 @@ class DownloadService {
         print('📊 Taille finale: $finalSize bytes');
         
         if (finalSize <= 0) {
-          print('❌ Fichier vide: $filePath');
+          print('❌ Fichier vide');
           await file.delete();
           return null;
         }
         
-        print('✅ Vidéo terminée: $filePath (${finalSize} bytes)');
+        print('✅ Vidéo terminée: $filePath');
         return filePath;
       }
       
     } catch (e, stackTrace) {
       print('❌ Erreur téléchargement: $e');
-      print('📋 Stack trace: $stackTrace');
+      print('📋 Stack: $stackTrace');
       return null;
     }
   }

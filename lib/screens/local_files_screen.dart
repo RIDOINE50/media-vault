@@ -12,7 +12,7 @@ import '../services/download_service.dart';
 import '../services/database_service.dart';
 import '../widgets/player_bar.dart';
 import 'settings_screen.dart';
-
+import 'video_player_screen.dart';
 class LocalFilesScreen extends StatefulWidget {
   final AudioService audioService;
 
@@ -78,10 +78,11 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
     super.dispose();
   }
 
-  Future<void> _loadFiles() async {
+    Future<void> _loadFiles() async {
     setState(() => _isLoading = true);
     
-    final localFiles = await _fileService.scanAllFiles();
+    // ✅ CHARGER DEPUIS LE CACHE (instantané)
+    final localFiles = await _fileService.scanAllFiles(forceRescan: false);
     final downloadedFiles = await _downloadService.getDownloadedFiles();
     
     _allFiles.clear();
@@ -101,6 +102,41 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
     setState(() => _isLoading = false);
     
     _listAnimationController.forward(from: 0);
+  }
+
+  // ✅ MÉTHODE POUR RESCANNER MANUELLEMENT
+  Future<void> _forceRescan() async {
+    setState(() => _isLoading = true);
+    
+    // ✅ VIDER LE CACHE ET RESCANNER
+    await _fileService.clearCache();
+    final localFiles = await _fileService.scanAllFiles(forceRescan: true);
+    final downloadedFiles = await _downloadService.getDownloadedFiles();
+    
+    _allFiles.clear();
+    _allFiles.addAll(localFiles);
+    
+    for (var downloaded in downloadedFiles) {
+      bool alreadyExists = _allFiles.any((f) => f.path == downloaded.path);
+      if (!alreadyExists) {
+        _allFiles.add(downloaded);
+      }
+    }
+    
+    _recentFiles = FileService.sortByRecentDesc(_allFiles).take(10).toList();
+    
+    _applyFilter();
+    
+    setState(() => _isLoading = false);
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Scan terminé: ${_allFiles.length} fichiers trouvés'),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
   }
 
   void _applyFilter() {
@@ -143,19 +179,34 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
   }
 
   void _playFile(MediaFile file) {
-    if (_isSelectionMode) {
-      _toggleSelection(file.id);
-      return;
-    }
-    
-    int index = _filteredFiles.indexOf(file);
-    if (index != -1) {
-      widget.audioService.setPlaylist(_filteredFiles, index);
-      Future.delayed(const Duration(milliseconds: 300), () {
-        if (mounted) Navigator.pushNamed(context, '/player');
-      });
-    }
+  if (_isSelectionMode) {
+    _toggleSelection(file.id);
+    return;
   }
+  
+  // ✅ VIDÉO : Ouvrir le lecteur vidéo
+  if (file.isVideo) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => VideoPlayerScreen(
+          videoPath: file.path,
+          title: file.title,
+        ),
+      ),
+    );
+    return;
+  }
+  
+  // ✅ AUDIO : Ouvrir le lecteur audio
+  int index = _filteredFiles.indexOf(file);
+  if (index != -1) {
+    widget.audioService.setPlaylist(_filteredFiles, index);
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) Navigator.pushNamed(context, '/player');
+    });
+  }
+}
 
   void _switchTab(String type) {
     if (_currentFilter != type) {
