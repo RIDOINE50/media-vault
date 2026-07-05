@@ -1,6 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/media_file.dart';
 import '../services/file_service.dart';
 import '../services/audio_service.dart';
@@ -27,6 +30,9 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
   final DownloadService _downloadService = DownloadService();
   final TextEditingController _searchController = TextEditingController();
   
+  // ✅ Canal pour la sonnerie (communique avec Android natif)
+  static const MethodChannel _ringtoneChannel = MethodChannel('com.mediavault/ringtone');
+
   List<MediaFile> _allFiles = [];
   List<MediaFile> _recentFiles = [];
   List<MediaFile> _filteredFiles = [];
@@ -39,7 +45,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
   late Animation<double> _tabAnimation;
   
   @override
-  void initState() {
+  void initState() { 
     super.initState();
     
     _tabAnimationController = AnimationController(
@@ -613,7 +619,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
             const SizedBox(height: 12),
             Text(
               file.title,
-              maxLines: 1,
+               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: isDark ? Colors.white : Colors.black87,
@@ -621,10 +627,10 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
                 fontSize: 13,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               file.artist,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: isDark ? Colors.grey[500] : Colors.grey[600],
@@ -907,6 +913,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
     );
   }
 
+  // ✅ 1. VRAI RENOMMAGE DE FICHIER
   Future<void> _renameFile(MediaFile file) async {
     final controller = TextEditingController(text: file.title);
     final settings = Provider.of<SettingsService>(context, listen: false);
@@ -942,24 +949,99 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
       ),
     );
     
-    if (newName != null && newName.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Fichier renommé en "$newName"'),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
+    if (newName != null && newName.isNotEmpty && newName != file.title) {
+      try {
+        final oldFile = File(file.path);
+        if (oldFile.existsSync()) {
+          final directory = oldFile.parent.path;
+          final extension = file.format;
+          final newPath = '$directory/$newName.$extension';
+          
+          if (File(newPath).existsSync()) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('Un fichier avec ce nom existe déjà'),
+                backgroundColor: Colors.red,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            );
+            return;
+          }
+          
+          await oldFile.rename(newPath);
+          
+          setState(() {
+            final index = _allFiles.indexWhere((f) => f.id == file.id);
+            if (index != -1) {
+              _allFiles[index] = MediaFile(
+                id: file.id,
+                title: newName,
+                artist: file.artist,
+                album: file.album,
+                path: newPath,
+                duration: file.duration,
+                format: file.format,
+                isVideo: file.isVideo,
+                downloadDate: file.downloadDate,
+                isFromYouTube: file.isFromYouTube,
+                thumbnailUrl: file.thumbnailUrl,
+              );
+            }
+            _applyFilter();
+          });
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('Renommé en "$newName"')),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur: ${e.toString()}'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
+      }
     }
   }
 
+  // ✅ 2. VRAI PARTAGE DE FICHIER
   Future<void> _shareFile(MediaFile file) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Partage du fichier...'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    try {
+      final xFile = XFile(file.path);
+      await Share.shareXFiles(
+        [xFile],
+        text: 'Écoute "${file.title}" via MediaVault ',
+        subject: file.title,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors du partage: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _deleteFile(MediaFile file, DatabaseService db) async {
@@ -1006,14 +1088,100 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
     }
   }
 
+  // ✅ 3. VRAIE DÉFINITION DE SONNERIE
   Future<void> _setAsRingtone(MediaFile file) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('"${file.title}" défini comme sonnerie'),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
+    if (file.isVideo) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Seuls les fichiers audio peuvent être définis comme sonnerie'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final canWrite = await _ringtoneChannel.invokeMethod<bool>('canWriteSettings') ?? false;
+      
+      if (!canWrite) {
+        final openSettings = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Text('Permission requise', style: TextStyle(fontWeight: FontWeight.bold)),
+            content: const Text('Pour définir une sonnerie, tu dois autoriser l\'application à modifier les paramètres système.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  await _ringtoneChannel.invokeMethod('openWriteSettings');
+                  Navigator.pop(context, true);
+                },
+                style: ElevatedButton.styleFrom(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Text('Autoriser'),
+              ),
+            ],
+          ),
+        );
+        
+        if (openSettings != true) return;
+        await Future.delayed(const Duration(seconds: 2));
+      }
+
+      final success = await _ringtoneChannel.invokeMethod<bool>(
+        'setAsRingtone',
+        {
+          'filePath': file.path,
+          'fileName': file.title,
+        },
+      );
+
+      if (mounted) {
+        if (success == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.music_note, color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('"${file.title}" défini comme sonnerie 🎵')),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Impossible de définir comme sonnerie'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _toggleFavorite(MediaFile file, DatabaseService db) async {
