@@ -6,7 +6,7 @@ import '../services/download_service.dart';
 import '../services/settings_service.dart';
 import '../services/audio_service.dart';
 import '../widgets/player_bar.dart';
-import 'video_player_screen.dart'; // ✅ AJOUTÉ
+import 'video_player_screen.dart';
 
 class DownloadedScreen extends StatefulWidget {
   final AudioService audioService;
@@ -48,30 +48,42 @@ class _DownloadedScreenState extends State<DownloadedScreen> with TickerProvider
   Future<void> _loadDownloads() async {
     setState(() => _isLoading = true);
     final files = await _downloadService.getDownloadedFiles();
+    
+    // ✅ SUPPRESSION DES DOUBLONS
+    final uniqueFiles = <String, MediaFile>{};
+    for (var file in files) {
+      uniqueFiles[file.path] = file;
+      print('📁 Fichier: ${file.title} | isVideo: ${file.isVideo} | format: ${file.format}');
+    }
+    
     setState(() {
-      _downloadedFiles = files;
+      _downloadedFiles = uniqueFiles.values.toList();
       _isLoading = false;
     });
     _listAnimationController.forward(from: 0);
   }
 
-  // ✅ CORRECTION ICI : Détecter si c'est une vidéo ou audio
+  // ✅ CORRECTION LECTURE VIDÉO vs AUDIO
   void _playFile(MediaFile file) {
+    print('🎵 Lecture: ${file.title} | isVideo: ${file.isVideo} | format: ${file.format}');
+    
     int index = _filteredFiles.indexOf(file);
     if (index != -1) {
-      if (file.isVideo) {
-        // ✅ VIDÉO : Utiliser VideoPlayerScreen avec le chemin local
+      // ✅ DÉTECTION VIDÉO
+      if (file.isVideo || ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v'].contains(file.format.toLowerCase())) {
+        print('🎬 Ouverture VideoPlayerScreen');
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => VideoPlayerScreen(
-              videoPath: file.path, // ✅ Chemin local du fichier
+              videoPath: file.path,
               title: file.title,
             ),
           ),
         );
       } else {
-        // ✅ AUDIO : Utiliser le lecteur audio normal
+        // ✅ AUDIO
+        print('🎵 Ouverture lecteur audio');
         widget.audioService.setPlaylist(_filteredFiles, index);
         Future.delayed(const Duration(milliseconds: 300), () {
           if (mounted) {
@@ -425,7 +437,7 @@ class _DownloadedScreenState extends State<DownloadedScreen> with TickerProvider
                   children: [
                     Text(
                       file.title,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: isDark ? Colors.white : Colors.black87,
@@ -433,7 +445,7 @@ class _DownloadedScreenState extends State<DownloadedScreen> with TickerProvider
                         fontSize: 15,
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     Text(
                       file.artist,
                       maxLines: 1,

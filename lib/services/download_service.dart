@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
-import 'package:just_audio/just_audio.dart'; // ✅ UTILISER JUST_AUDIO
 import '../models/media_file.dart';
 
 class DownloadService {
@@ -46,20 +45,6 @@ class DownloadService {
     }
   }
 
-  // ✅ EXTRAIRE LA DURÉE AVEC JUST_AUDIO
-  Future<Duration> _getAudioDuration(String filePath) async {
-    try {
-      final player = AudioPlayer();
-      await player.setFilePath(filePath);
-      final duration = player.duration ?? Duration.zero;
-      await player.dispose();
-      return duration;
-    } catch (e) {
-      print('⚠️ Erreur lecture durée: $e');
-      return Duration.zero;
-    }
-  }
-
   Future<List<MediaFile>> getDownloadedFiles() async {
     List<MediaFile> files = [];
     
@@ -71,6 +56,7 @@ class DownloadService {
 
       final entities = _downloadDir.listSync();
       print('📁 Scan du dossier: ${_downloadDir.path}');
+      print('📁 ${entities.length} éléments trouvés');
       
       for (var entity in entities) {
         if (entity is File) {
@@ -78,52 +64,60 @@ class DownloadService {
           final fileName = path.split(Platform.pathSeparator).last;
           final extension = fileName.split('.').last.toLowerCase();
           
+          print('🔍 Vérification: $fileName (.$extension)');
+          
           final isVideo = videoExtensions.contains(extension);
           final isAudio = audioExtensions.contains(extension);
           
+          print('🎵 isAudio: $isAudio, 🎬 isVideo: $isVideo');
+          
           if (isVideo || isAudio) {
-            final stat = await entity.stat();
-            if (stat.size <= 0) {
-              print('⚠️ Fichier vide ignoré: $fileName');
-              continue;
-            }
-            
-            String title = fileName.replaceAll('.$extension', '');
-            String artist = 'Artiste inconnu';
-            
-            if (title.contains(' - ')) {
-              final firstDashIndex = title.indexOf(' - ');
-              artist = title.substring(0, firstDashIndex).trim();
-              title = title.substring(firstDashIndex + 3).trim();
-            } 
-            else if (title.contains('_')) {
-              final parts = title.split('_');
-              if (parts.length >= 2) {
-                artist = parts[0].trim();
-                title = parts.sublist(1).join('_').trim();
+            try {
+              final stat = await entity.stat();
+              final fileSize = stat.size;
+              
+              print('📊 Taille: $fileSize bytes');
+              
+              if (fileSize <= 0) {
+                print('⚠️ Fichier vide ignoré: $fileName');
+                continue;
               }
-            }
-            
-            title = title.replaceAll(RegExp(r'^\d+\s*[-\.]?\s*'), '').trim();
+              
+              String title = fileName.replaceAll('.$extension', '');
+              String artist = 'Artiste inconnu';
+              
+              if (title.contains(' - ')) {
+                final firstDashIndex = title.indexOf(' - ');
+                artist = title.substring(0, firstDashIndex).trim();
+                title = title.substring(firstDashIndex + 3).trim();
+              } 
+              else if (title.contains('_')) {
+                final parts = title.split('_');
+                if (parts.length >= 2) {
+                  artist = parts[0].trim();
+                  title = parts.sublist(1).join('_').trim();
+                }
+              }
+              
+              title = title.replaceAll(RegExp(r'^\d+\s*[-\.]?\s*'), '').trim();
 
-            Duration duration = Duration.zero;
-            if (isAudio) {
-              duration = await _getAudioDuration(path);
-            }
-
-            if (!files.any((f) => f.path == path)) {
-              files.add(MediaFile(
-                id: path.hashCode.toString(),
-                title: title,
-                artist: artist,
-                album: 'Téléchargements',
-                path: path,
-                duration: duration,
-                format: extension,
-                isVideo: isVideo,
-                downloadDate: stat.modified,
-                isFromYouTube: true,
-              ));
+              if (!files.any((f) => f.path == path)) {
+                files.add(MediaFile(
+                  id: path.hashCode.toString(),
+                  title: title,
+                  artist: artist,
+                  album: 'Téléchargements',
+                  path: path,
+                  duration: Duration.zero, // Sera extrait par le lecteur
+                  format: extension,
+                  isVideo: isVideo, // ✅ IMPORTANT POUR LA LECTURE
+                  downloadDate: stat.modified,
+                  isFromYouTube: true,
+                ));
+                print('✅ Fichier ajouté: $title');
+              }
+            } catch (e) {
+              print('❌ Erreur lecture fichier: $e');
             }
           }
         }
@@ -143,7 +137,7 @@ class DownloadService {
     required void Function(double progress) onProgress,
   }) async {
     try {
-      print('🎬 Début téléchargement: $videoId');
+      print('🎬 Début téléchargement: $videoId (audio: $isAudioOnly)');
       
       final video = await yt.videos.get(videoId);
       final title = video.title.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
@@ -157,7 +151,7 @@ class DownloadService {
         final fileName = '${title}_Audio.mp3';
         final filePath = '${_downloadDir.path}${Platform.pathSeparator}$fileName';
         
-        print('🎵 Téléchargement: $fileName');
+        print('🎵 Téléchargement audio: $fileName');
         
         final stream = yt.videos.streamsClient.get(audioStreamInfo);
         final file = File(filePath);
@@ -172,7 +166,11 @@ class DownloadService {
           onProgress(downloadedBytes / totalBytes);
         }
         
+        await fileStream.flush();
         await fileStream.close();
+        
+        // ✅ VÉRIFICATION APRÈS TÉLÉCHARGEMENT
+        await Future.delayed(const Duration(milliseconds: 500));
         
         if (!file.existsSync()) {
           print('❌ Fichier non créé: $filePath');
@@ -180,6 +178,8 @@ class DownloadService {
         }
         
         final finalSize = await file.length();
+        print('📊 Taille finale: $finalSize bytes');
+        
         if (finalSize <= 0) {
           print('❌ Fichier vide: $filePath');
           await file.delete();
@@ -196,7 +196,7 @@ class DownloadService {
         final fileName = '${title}_Video.mp4';
         final filePath = '${_downloadDir.path}${Platform.pathSeparator}$fileName';
         
-        print('🎬 Téléchargement: $fileName');
+        print('🎬 Téléchargement vidéo: $fileName');
         
         final stream = yt.videos.streamsClient.get(videoStreamInfo);
         final file = File(filePath);
@@ -211,7 +211,11 @@ class DownloadService {
           onProgress(downloadedBytes / totalBytes);
         }
         
+        await fileStream.flush();
         await fileStream.close();
+        
+        // ✅ VÉRIFICATION APRÈS TÉLÉCHARGEMENT
+        await Future.delayed(const Duration(milliseconds: 500));
         
         if (!file.existsSync()) {
           print('❌ Fichier non créé: $filePath');
@@ -219,6 +223,8 @@ class DownloadService {
         }
         
         final finalSize = await file.length();
+        print('📊 Taille finale: $finalSize bytes');
+        
         if (finalSize <= 0) {
           print('❌ Fichier vide: $filePath');
           await file.delete();
@@ -229,8 +235,9 @@ class DownloadService {
         return filePath;
       }
       
-    } catch (e) {
+    } catch (e, stackTrace) {
       print('❌ Erreur téléchargement: $e');
+      print('📋 Stack trace: $stackTrace');
       return null;
     }
   }

@@ -1,6 +1,5 @@
 import 'dart:io';
-import 'package:path_provider/path_provider.dart';
-import 'package:just_audio/just_audio.dart'; // ✅ UTILISER JUST_AUDIO
+import 'package:just_audio/just_audio.dart';
 import '../models/media_file.dart';
 
 class FileService {
@@ -14,7 +13,25 @@ class FileService {
     '3gp', 'ts', 'm2ts', 'mpg', 'mpeg', 'vob', 'ogv'
   ];
 
-  // ✅ EXTRAIRE LA DURÉE AVEC JUST_AUDIO
+  // ✅ DOSSIERS À EXCLURE (système, cache, etc.)
+  static const List<String> excludedDirs = [
+    'Android',
+    '.thumbnails',
+    '.Trash',
+    'LOST.DIR',
+    '.temp',
+    'cache',
+    '.cache',
+    'thumb',
+    '.thumb',
+    'WhatsApp/.Shared',
+    'Tencent',
+    '.facebook_cache',
+    '.instagram',
+    '.tiktok',
+    'DCIM/.thumbnails',
+  ];
+
   Future<Duration> _getAudioDuration(String filePath) async {
     try {
       final player = AudioPlayer();
@@ -28,12 +45,31 @@ class FileService {
     }
   }
 
+  // ✅ VÉRIFIER SI UN DOSSIER DOIT ÊTRE EXCLU
+  bool _isExcluded(String path) {
+    final lowerPath = path.toLowerCase();
+    for (var excluded in excludedDirs) {
+      if (lowerPath.contains(excluded.toLowerCase())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<List<MediaFile>> scanAllFiles() async {
     List<MediaFile> allFiles = [];
-    final directories = <String>[];
     
-    if (Platform.isAndroid) {
-      directories.addAll([
+    // ✅ SCANNER TOUT LE STOCKAGE PRINCIPAL
+    final rootDir = Directory('/storage/emulated/0');
+    
+    if (await rootDir.exists()) {
+      print('📱 Scan complet de: ${rootDir.path}');
+      final files = await _scanDirectoryRecursive(rootDir, depth: 0, maxDepth: 10);
+      allFiles.addAll(files);
+    } else {
+      print('⚠️ Dossier principal introuvable, scan des dossiers connus');
+      // Fallback : dossiers connus
+      final fallbackDirs = [
         '/storage/emulated/0/Music',
         '/storage/emulated/0/Download',
         '/storage/emulated/0/MediaVault',
@@ -41,33 +77,18 @@ class FileService {
         '/storage/emulated/0/DCIM',
         '/storage/emulated/0/Movies',
         '/storage/emulated/0/Recordings',
-        '/storage/emulated/0/Podcasts',
-        '/storage/emulated/0/Audiobooks',
-        '/storage/emulated/0/WhatsApp/Media/WhatsApp Video',
-        '/storage/emulated/0/WhatsApp/Media/WhatsApp Audio',
-        '/storage/emulated/0/Telegram/Telegram Video',
-        '/storage/emulated/0/Telegram/Telegram Audio',
-      ]);
-    } else if (Platform.isWindows) {
-      directories.addAll([
-        'downloads',
-        'Music',
-        'Downloads',
-        'Videos',
-        'Documents',
-      ]);
-    }
-    
-    final uniqueDirs = directories.toSet();
-    
-    for (var dirPath in uniqueDirs) {
-      final dir = Directory(dirPath);
-      if (await dir.exists()) {
-        final files = await _scanDirectory(dir);
-        allFiles.addAll(files);
+      ];
+      
+      for (var dirPath in fallbackDirs) {
+        final dir = Directory(dirPath);
+        if (await dir.exists()) {
+          final files = await _scanDirectoryRecursive(dir, depth: 0, maxDepth: 10);
+          allFiles.addAll(files);
+        }
       }
     }
     
+    // ✅ SUPPRIMER LES DOUBLONS
     final uniqueFiles = <String, MediaFile>{};
     for (var file in allFiles) {
       uniqueFiles[file.path] = file;
@@ -77,29 +98,52 @@ class FileService {
     return uniqueFiles.values.toList();
   }
 
-  Future<List<MediaFile>> _scanDirectory(Directory dir) async {
+  // ✅ SCAN RÉCURSIF AVEC PROFONDEUR MAXIMALE
+  Future<List<MediaFile>> _scanDirectoryRecursive(Directory dir, {required int depth, required int maxDepth}) async {
     List<MediaFile> files = [];
     
+    if (depth > maxDepth) return files;
+    
+    // Exclure les dossiers système
+    if (_isExcluded(dir.path)) return files;
+    
     try {
-      print('📁 Scan: ${dir.path}');
-      final entities = dir.listSync(recursive: true, followLinks: false);
+      final entities = dir.listSync(followLinks: false);
       
       for (var entity in entities) {
-        if (entity is File) {
+        if (entity is Directory) {
+          // Scanner les sous-dossiers
+          final subFiles = await _scanDirectoryRecursive(entity, depth: depth + 1, maxDepth: maxDepth);
+          files.addAll(subFiles);
+        } 
+        else if (entity is File) {
           final path = entity.path;
           final fileName = path.split(Platform.pathSeparator).last;
           
+          // Ignorer les fichiers cachés
           if (fileName.startsWith('.')) continue;
           
-          final extension = fileName.split('.').last.toLowerCase();
+          // Récupérer l'extension
+          final dotIndex = fileName.lastIndexOf('.');
+          if (dotIndex == -1) continue;
+          final extension = fileName.substring(dotIndex + 1).toLowerCase();
           
           final isVideo = videoExtensions.contains(extension);
           final isAudio = audioExtensions.contains(extension);
           
           if (isVideo || isAudio) {
-            String title = fileName.replaceAll('.$extension', '');
+            // Vérifier que le fichier n'est pas vide
+            try {
+              final stat = await entity.stat();
+              if (stat.size <= 0) continue;
+            } catch (e) {
+              continue;
+            }
+            
+            String title = fileName.substring(0, dotIndex);
             String artist = 'Inconnu';
 
+            // Parser "Artiste - Titre"
             if (title.contains(' - ')) {
               final firstDashIndex = title.indexOf(' - ');
               artist = title.substring(0, firstDashIndex).trim();
@@ -114,6 +158,7 @@ class FileService {
             }
 
             title = title.replaceAll(RegExp(r'^\d+\s*[-\.]?\s*'), '').trim();
+            if (title.isEmpty) title = fileName;
             
             Duration duration = Duration.zero;
             if (isAudio) {
@@ -134,18 +179,17 @@ class FileService {
         }
       }
     } catch (e) {
-      print('⚠️ Erreur scan ${dir.path}: $e');
+      // Ignorer les erreurs de permission sur certains dossiers
+      print('⚠️ Impossible de scanner: ${dir.path} ($e)');
     }
     
     return files;
   }
 
   Future<List<MediaFile>> getDownloadedFiles() async {
-    final dir = Directory(Platform.isAndroid 
-        ? '/storage/emulated/0/Music/MediaVault' 
-        : 'downloads');
+    final dir = Directory('/storage/emulated/0/Music/MediaVault');
     if (await dir.exists()) {
-      return await _scanDirectory(dir);
+      return await _scanDirectoryRecursive(dir, depth: 0, maxDepth: 5);
     }
     return [];
   }

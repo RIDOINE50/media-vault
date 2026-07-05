@@ -30,7 +30,6 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
   final DownloadService _downloadService = DownloadService();
   final TextEditingController _searchController = TextEditingController();
   
-  // ✅ Canal pour la sonnerie (communique avec Android natif)
   static const MethodChannel _ringtoneChannel = MethodChannel('com.mediavault/ringtone');
 
   List<MediaFile> _allFiles = [];
@@ -39,6 +38,11 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
   
   bool _isLoading = true;
   String _currentFilter = 'music';
+  String _currentSort = 'recent_desc'; // ✅ TRI ACTUEL
+  
+  // ✅ SÉLECTION MULTIPLE
+  bool _isSelectionMode = false;
+  Set<String> _selectedIds = {};
   
   late AnimationController _tabAnimationController;
   late AnimationController _listAnimationController;
@@ -90,13 +94,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
       }
     }
     
-    _allFiles.sort((a, b) {
-      final dateA = a.downloadDate ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final dateB = b.downloadDate ?? DateTime.fromMillisecondsSinceEpoch(0);
-      return dateB.compareTo(dateA);
-    });
-
-    _recentFiles = _allFiles.take(10).toList();
+    _recentFiles = FileService.sortByRecentDesc(_allFiles).take(10).toList();
     
     _applyFilter();
     
@@ -107,7 +105,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
 
   void _applyFilter() {
     setState(() {
-      _filteredFiles = _allFiles.where((file) {
+      var filtered = _allFiles.where((file) {
         bool matchesType = _currentFilter == 'music' ? !file.isVideo : file.isVideo;
         
         if (_searchController.text.isEmpty) return matchesType;
@@ -118,12 +116,38 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
           file.artist.toLowerCase().contains(query)
         );
       }).toList();
+      
+      // ✅ APPLIQUER LE TRI
+      switch (_currentSort) {
+        case 'recent_desc':
+          filtered = FileService.sortByRecentDesc(filtered);
+          break;
+        case 'recent_asc':
+          filtered = FileService.sortByRecentAsc(filtered);
+          break;
+        case 'name_asc':
+          filtered = FileService.sortByNameAsc(filtered);
+          break;
+        case 'name_desc':
+          filtered = FileService.sortByNameDesc(filtered);
+          break;
+        case 'artist':
+          filtered = FileService.sortByArtist(filtered);
+          break;
+      }
+      
+      _filteredFiles = filtered;
     });
     
     _listAnimationController.forward(from: 0);
   }
 
   void _playFile(MediaFile file) {
+    if (_isSelectionMode) {
+      _toggleSelection(file.id);
+      return;
+    }
+    
     int index = _filteredFiles.indexOf(file);
     if (index != -1) {
       widget.audioService.setPlaylist(_filteredFiles, index);
@@ -139,6 +163,198 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
       _tabAnimationController.forward(from: 0);
       _applyFilter();
     }
+  }
+
+  // ✅ MENU DE TRI
+  void _showSortMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E1E1E) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Trier par',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _buildSortOption('recent_desc', 'Plus récent d\'abord', Icons.schedule),
+            _buildSortOption('recent_asc', 'Plus ancien d\'abord', Icons.history),
+            _buildSortOption('name_asc', 'Nom A → Z', Icons.sort_by_alpha),
+            _buildSortOption('name_desc', 'Nom Z → A', Icons.sort),
+            _buildSortOption('artist', 'Artiste', Icons.person),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSortOption(String value, String label, IconData icon) {
+    final isSelected = _currentSort == value;
+    return ListTile(
+      leading: Icon(
+        icon,
+        color: isSelected ? Theme.of(context).primaryColor : null,
+      ),
+      title: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? Theme.of(context).primaryColor : null,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+      trailing: isSelected ? const Icon(Icons.check_circle, color: Colors.green) : null,
+      onTap: () {
+        setState(() => _currentSort = value);
+        _applyFilter();
+        Navigator.pop(context);
+      },
+    );
+  }
+
+  String _getSortLabel() {
+    switch (_currentSort) {
+      case 'recent_desc': return 'Plus récent';
+      case 'recent_asc': return 'Plus ancien';
+      case 'name_asc': return 'A → Z';
+      case 'name_desc': return 'Z → A';
+      case 'artist': return 'Artiste';
+      default: return '';
+    }
+  }
+
+  // ✅ SÉLECTION MULTIPLE
+  void _toggleSelectionMode() {
+    setState(() {
+      _isSelectionMode = !_isSelectionMode;
+      if (!_isSelectionMode) {
+        _selectedIds.clear();
+      }
+    });
+  }
+
+  void _toggleSelection(String id) {
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+        if (_selectedIds.isEmpty) {
+          _isSelectionMode = false;
+        }
+      } else {
+        _selectedIds.add(id);
+      }
+    });
+  }
+
+  void _selectAll() {
+    setState(() {
+      _selectedIds = _filteredFiles.map((f) => f.id).toSet();
+    });
+  }
+
+  void _deselectAll() {
+    setState(() {
+      _selectedIds.clear();
+      _isSelectionMode = false;
+    });
+  }
+
+  void _showAddSelectedToAlbum() {
+    if (_selectedIds.isEmpty) return;
+    
+    final box = Hive.box('custom_albums');
+    final albums = box.keys.toList();
+
+    if (albums.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Crée d\'abord un album dans l\'onglet Albums !'),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E1E1E) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 16),
+            Text(
+              'Ajouter ${_selectedIds.length} fichiers à un album',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: albums.length,
+                itemBuilder: (context, index) {
+                  final albumName = albums[index];
+                  return ListTile(
+                    leading: Icon(Icons.album_rounded, color: Theme.of(context).primaryColor),
+                    title: Text(albumName),
+                    onTap: () {
+                      final List<String> currentFiles = List<String>.from(box.get(albumName) ?? []);
+                      for (var id in _selectedIds) {
+                        if (!currentFiles.contains(id)) {
+                          currentFiles.add(id);
+                        }
+                      }
+                      box.put(albumName, currentFiles);
+                      Navigator.pop(context);
+                      final count = _selectedIds.length;
+                      _deselectAll();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('$count fichiers ajoutés à "$albumName"'),
+                          backgroundColor: Colors.green,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showAddToAlbumDialog(MediaFile file) {
@@ -259,7 +475,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
             backgroundColor: Colors.transparent,
             elevation: 0,
             title: Text(
-              'Accueil',
+              _isSelectionMode ? '${_selectedIds.length} sélectionné${_selectedIds.length > 1 ? 's' : ''}' : 'Accueil',
               style: TextStyle(
                 color: isDark ? Colors.white : Colors.black87,
                 fontWeight: FontWeight.bold,
@@ -268,12 +484,40 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
               ),
             ),
             actions: [
-              _buildAppBarIcon(Icons.queue_music, 'Playlists', () => Navigator.pushNamed(context, '/playlists'), isDark),
-              _buildAppBarIcon(Icons.favorite_outline, 'Favoris', () => Navigator.pushNamed(context, '/favorites'), isDark),
-              _buildAppBarIcon(Icons.settings, 'Paramètres', () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const SettingsScreen()),
-              ), isDark),
+              if (_isSelectionMode) ...[
+                IconButton(
+                  icon: const Icon(Icons.select_all, color: Colors.white),
+                  onPressed: _selectAll,
+                  tooltip: 'Tout sélectionner',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.album_outlined, color: Colors.white),
+                  onPressed: _showAddSelectedToAlbum,
+                  tooltip: 'Ajouter à un album',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: _deselectAll,
+                  tooltip: 'Annuler',
+                ),
+              ] else ...[
+                IconButton(
+                  icon: Icon(Icons.checklist_outlined, color: isDark ? Colors.white : Colors.black87),
+                  onPressed: _toggleSelectionMode,
+                  tooltip: 'Sélection multiple',
+                ),
+                IconButton(
+                  icon: Icon(Icons.sort_rounded, color: isDark ? Colors.white : Colors.black87),
+                  onPressed: _showSortMenu,
+                  tooltip: 'Trier',
+                ),
+                _buildAppBarIcon(Icons.queue_music, 'Playlists', () => Navigator.pushNamed(context, '/playlists'), isDark),
+                _buildAppBarIcon(Icons.favorite_outline, 'Favoris', () => Navigator.pushNamed(context, '/favorites'), isDark),
+                _buildAppBarIcon(Icons.settings, 'Paramètres', () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                ), isDark),
+              ],
             ],
           ),
           body: _isLoading
@@ -305,7 +549,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
 
                         const SizedBox(height: 24),
 
-                        if (_recentFiles.isNotEmpty) ...[
+                        if (_recentFiles.isNotEmpty && !_isSelectionMode) ...[
                           _buildSectionHeader('Récemment ajouté', isDark),
                           const SizedBox(height: 12),
                           SizedBox(
@@ -494,14 +738,29 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
           ),
         );
       },
-      child: Text(
-        '${_filteredFiles.length} ${_currentFilter == 'music' ? 'musiques' : 'vidéos'}',
-        style: TextStyle(
-          color: isDark ? Colors.grey[500] : Colors.grey[600],
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
-          letterSpacing: 0.5,
-        ),
+      child: Row(
+        children: [
+          Text(
+            '${_filteredFiles.length} ${_currentFilter == 'music' ? 'musiques' : 'vidéos'}',
+            style: TextStyle(
+              color: isDark ? Colors.grey[500] : Colors.grey[600],
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Icon(Icons.sort_rounded, size: 14, color: isDark ? Colors.grey[500] : Colors.grey[600]),
+          const SizedBox(width: 4),
+          Text(
+            _getSortLabel(),
+            style: TextStyle(
+              color: Theme.of(context).primaryColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -619,7 +878,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
             const SizedBox(height: 12),
             Text(
               file.title,
-               maxLines: 2,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: isDark ? Colors.white : Colors.black87,
@@ -665,6 +924,8 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
   }
 
   Widget _buildListTile(MediaFile file, bool isDark, Color primaryColor) {
+    final isSelected = _selectedIds.contains(file.id);
+    
     return Material(
       color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
       borderRadius: BorderRadius.circular(16),
@@ -672,12 +933,32 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () => _playFile(file),
+        onLongPress: () {
+          if (!_isSelectionMode) {
+            setState(() => _isSelectionMode = true);
+          }
+          _toggleSelection(file.id);
+        },
         splashColor: primaryColor.withOpacity(0.1),
         highlightColor: primaryColor.withOpacity(0.05),
-        child: Padding(
+        child: Container(
           padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: isSelected 
+                ? Border.all(color: primaryColor, width: 2)
+                : null,
+          ),
           child: Row(
             children: [
+              if (_isSelectionMode) ...[
+                Icon(
+                  isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                  color: isSelected ? primaryColor : (isDark ? Colors.grey[500] : Colors.grey[600]),
+                  size: 28,
+                ),
+                const SizedBox(width: 12),
+              ],
               Container(
                 width: 56,
                 height: 56,
@@ -705,7 +986,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
                   children: [
                     Text(
                       file.title,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: isDark ? Colors.white : Colors.black87,
@@ -713,7 +994,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
                         fontSize: 14,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                     Text(
                       file.artist,
                       maxLines: 1,
@@ -726,22 +1007,23 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
                   ],
                 ),
               ),
-              PopupMenuButton<String>(
-                icon: Icon(Icons.more_vert_rounded, color: isDark ? Colors.grey[500] : Colors.grey[600]),
-                color: isDark ? const Color(0xFF2A2A2A) : Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                onSelected: (value) => _handleMenuAction(value, file),
-                itemBuilder: (context) => [
-                  _buildMenuItem(Icons.info_outline_rounded, 'Détails', 'details'),
-                  _buildMenuItem(Icons.edit_rounded, 'Renommer', 'rename'),
-                  _buildMenuItem(Icons.share_rounded, 'Envoyer', 'share'),
-                  _buildMenuItem(Icons.delete_rounded, 'Supprimer', 'delete'),
-                  if (!file.isVideo) _buildMenuItem(Icons.music_note_rounded, 'Définir comme sonnerie', 'ringtone'),
-                  const PopupMenuDivider(),
-                  _buildMenuItem(Icons.favorite_rounded, 'Ajouter aux favoris', 'favorite', textColor: Colors.red),
-                  _buildMenuItem(Icons.album_rounded, 'Ajouter à un album', 'add_to_album', textColor: primaryColor),
-                ],
-              ),
+              if (!_isSelectionMode)
+                PopupMenuButton<String>(
+                  icon: Icon(Icons.more_vert_rounded, color: isDark ? Colors.grey[500] : Colors.grey[600]),
+                  color: isDark ? const Color(0xFF2A2A2A) : Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  onSelected: (value) => _handleMenuAction(value, file),
+                  itemBuilder: (context) => [
+                    _buildMenuItem(Icons.info_outline_rounded, 'Détails', 'details'),
+                    _buildMenuItem(Icons.edit_rounded, 'Renommer', 'rename'),
+                    _buildMenuItem(Icons.share_rounded, 'Envoyer', 'share'),
+                    _buildMenuItem(Icons.delete_rounded, 'Supprimer', 'delete'),
+                    if (!file.isVideo) _buildMenuItem(Icons.music_note_rounded, 'Définir comme sonnerie', 'ringtone'),
+                    const PopupMenuDivider(),
+                    _buildMenuItem(Icons.favorite_rounded, 'Ajouter aux favoris', 'favorite', textColor: Colors.red),
+                    _buildMenuItem(Icons.album_rounded, 'Ajouter à un album', 'add_to_album', textColor: primaryColor),
+                  ],
+                ),
             ],
           ),
         ),
@@ -829,6 +1111,14 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
               fontSize: 14,
             ),
           ),
+          const SizedBox(height: 8),
+          Text(
+            'Le premier scan peut prendre 10-20 secondes',
+            style: TextStyle(
+              color: isDark ? Colors.grey[600] : Colors.grey[500],
+              fontSize: 12,
+            ),
+          ),
         ],
       ),
     );
@@ -913,7 +1203,6 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
     );
   }
 
-  // ✅ 1. VRAI RENOMMAGE DE FICHIER
   Future<void> _renameFile(MediaFile file) async {
     final controller = TextEditingController(text: file.title);
     final settings = Provider.of<SettingsService>(context, listen: false);
@@ -1021,7 +1310,6 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
     }
   }
 
-  // ✅ 2. VRAI PARTAGE DE FICHIER
   Future<void> _shareFile(MediaFile file) async {
     try {
       final xFile = XFile(file.path);
@@ -1069,6 +1357,15 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
     );
     
     if (confirmed == true) {
+      try {
+        final fileToDelete = File(file.path);
+        if (fileToDelete.existsSync()) {
+          await fileToDelete.delete();
+        }
+      } catch (e) {
+        print('⚠️ Erreur suppression fichier: $e');
+      }
+      
       await db.removeFavorite(file.id);
       setState(() {
         _allFiles.removeWhere((f) => f.id == file.id);
@@ -1088,7 +1385,6 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
     }
   }
 
-  // ✅ 3. VRAIE DÉFINITION DE SONNERIE
   Future<void> _setAsRingtone(MediaFile file) async {
     if (file.isVideo) {
       ScaffoldMessenger.of(context).showSnackBar(
