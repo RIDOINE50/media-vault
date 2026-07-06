@@ -8,94 +8,66 @@ import '../models/media_file.dart';
 import '../services/file_service.dart';
 import '../services/audio_service.dart';
 import '../services/settings_service.dart';
-import '../services/download_service.dart';
 import '../services/database_service.dart';
 import '../widgets/player_bar.dart';
 import 'settings_screen.dart';
-import 'video_player_screen.dart';
-class LocalFilesScreen extends StatefulWidget {
+import 'video_player_screen.dart'; // ✅ IMPORTANT POUR OUVRIR LA VIDÉO
+
+class VideosScreen extends StatefulWidget {
   final AudioService audioService;
 
-  const LocalFilesScreen({
+  const VideosScreen({
     Key? key,
     required this.audioService,
   }) : super(key: key);
 
   @override
-  State<LocalFilesScreen> createState() => _LocalFilesScreenState();
+  State<VideosScreen> createState() => _VideosScreenState();
 }
 
-class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProviderStateMixin {
+class _VideosScreenState extends State<VideosScreen> with TickerProviderStateMixin {
   final FileService _fileService = FileService();
-  final DownloadService _downloadService = DownloadService();
   final TextEditingController _searchController = TextEditingController();
-  
-  static const MethodChannel _ringtoneChannel = MethodChannel('com.mediavault/ringtone');
 
-  List<MediaFile> _allFiles = [];
-  List<MediaFile> _recentFiles = [];
-  List<MediaFile> _filteredFiles = [];
+  List<MediaFile> _allVideos = [];
+  List<MediaFile> _recentVideos = [];
+  List<MediaFile> _filteredVideos = [];
   
   bool _isLoading = true;
-  String _currentFilter = 'music';
-  String _currentSort = 'recent_desc'; // ✅ TRI ACTUEL
+  String _currentSort = 'recent_desc';
   
-  // ✅ SÉLECTION MULTIPLE
   bool _isSelectionMode = false;
   Set<String> _selectedIds = {};
   
-  late AnimationController _tabAnimationController;
   late AnimationController _listAnimationController;
-  late Animation<double> _tabAnimation;
   
   @override
   void initState() { 
     super.initState();
-    
-    _tabAnimationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-    _tabAnimation = CurvedAnimation(
-      parent: _tabAnimationController,
-      curve: Curves.easeInOut,
-    );
     
     _listAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
     );
     
-    _loadFiles();
+    _loadVideos();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
-    _downloadService.dispose();
-    _tabAnimationController.dispose();
     _listAnimationController.dispose();
     super.dispose();
   }
 
-    Future<void> _loadFiles() async {
+  Future<void> _loadVideos() async {
     setState(() => _isLoading = true);
     
-    // ✅ CHARGER DEPUIS LE CACHE (instantané)
-    final localFiles = await _fileService.scanAllFiles(forceRescan: false);
-    final downloadedFiles = await _downloadService.getDownloadedFiles();
+    final allFiles = await _fileService.scanAllFiles(forceRescan: false);
     
-    _allFiles.clear();
-    _allFiles.addAll(localFiles);
-    
-    for (var downloaded in downloadedFiles) {
-      bool alreadyExists = _allFiles.any((f) => f.path == downloaded.path);
-      if (!alreadyExists) {
-        _allFiles.add(downloaded);
-      }
-    }
-    
-    _recentFiles = FileService.sortByRecentDesc(_allFiles).take(10).toList();
+    // ✅ FILTRER UNIQUEMENT LES VIDÉOS
+    _allVideos = allFiles.where((file) => file.isVideo).toList();
+    _recentVideos = FileService.sortByRecentDesc(_allVideos).take(10).toList();
     
     _applyFilter();
     
@@ -104,56 +76,16 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
     _listAnimationController.forward(from: 0);
   }
 
-  // ✅ MÉTHODE POUR RESCANNER MANUELLEMENT
-  Future<void> _forceRescan() async {
-    setState(() => _isLoading = true);
-    
-    // ✅ VIDER LE CACHE ET RESCANNER
-    await _fileService.clearCache();
-    final localFiles = await _fileService.scanAllFiles(forceRescan: true);
-    final downloadedFiles = await _downloadService.getDownloadedFiles();
-    
-    _allFiles.clear();
-    _allFiles.addAll(localFiles);
-    
-    for (var downloaded in downloadedFiles) {
-      bool alreadyExists = _allFiles.any((f) => f.path == downloaded.path);
-      if (!alreadyExists) {
-        _allFiles.add(downloaded);
-      }
-    }
-    
-    _recentFiles = FileService.sortByRecentDesc(_allFiles).take(10).toList();
-    
-    _applyFilter();
-    
-    setState(() => _isLoading = false);
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Scan terminé: ${_allFiles.length} fichiers trouvés'),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
-  }
-
   void _applyFilter() {
     setState(() {
-      var filtered = _allFiles.where((file) {
-        bool matchesType = _currentFilter == 'music' ? !file.isVideo : file.isVideo;
-        
-        if (_searchController.text.isEmpty) return matchesType;
+      var filtered = _allVideos.where((file) {
+        if (_searchController.text.isEmpty) return true;
         
         String query = _searchController.text.toLowerCase();
-        return matchesType && (
-          file.title.toLowerCase().contains(query) ||
-          file.artist.toLowerCase().contains(query)
-        );
+        return file.title.toLowerCase().contains(query) ||
+               file.artist.toLowerCase().contains(query);
       }).toList();
       
-      // ✅ APPLIQUER LE TRI
       switch (_currentSort) {
         case 'recent_desc':
           filtered = FileService.sortByRecentDesc(filtered);
@@ -172,20 +104,19 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
           break;
       }
       
-      _filteredFiles = filtered;
+      _filteredVideos = filtered;
     });
     
     _listAnimationController.forward(from: 0);
   }
 
+  // ✅ OUVRIR LE LECTEUR VIDÉO AU LIEU DU LECTEUR AUDIO
   void _playFile(MediaFile file) {
-  if (_isSelectionMode) {
-    _toggleSelection(file.id);
-    return;
-  }
-  
-  // ✅ VIDÉO : Ouvrir le lecteur vidéo
-  if (file.isVideo) {
+    if (_isSelectionMode) {
+      _toggleSelection(file.id);
+      return;
+    }
+    
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -195,28 +126,8 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
         ),
       ),
     );
-    return;
-  }
-  
-  // ✅ AUDIO : Ouvrir le lecteur audio
-  int index = _filteredFiles.indexOf(file);
-  if (index != -1) {
-    widget.audioService.setPlaylist(_filteredFiles, index);
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) Navigator.pushNamed(context, '/player');
-    });
-  }
-}
-
-  void _switchTab(String type) {
-    if (_currentFilter != type) {
-      setState(() => _currentFilter = type);
-      _tabAnimationController.forward(from: 0);
-      _applyFilter();
-    }
   }
 
-  // ✅ MENU DE TRI
   void _showSortMenu() {
     showModalBottomSheet(
       context: context,
@@ -293,7 +204,6 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
     }
   }
 
-  // ✅ SÉLECTION MULTIPLE
   void _toggleSelectionMode() {
     setState(() {
       _isSelectionMode = !_isSelectionMode;
@@ -318,7 +228,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
 
   void _selectAll() {
     setState(() {
-      _selectedIds = _filteredFiles.map((f) => f.id).toSet();
+      _selectedIds = _filteredVideos.map((f) => f.id).toSet();
     });
   }
 
@@ -327,190 +237,6 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
       _selectedIds.clear();
       _isSelectionMode = false;
     });
-  }
-
-  void _showAddSelectedToAlbum() {
-    if (_selectedIds.isEmpty) return;
-    
-    final box = Hive.box('custom_albums');
-    final albums = box.keys.toList();
-
-    if (albums.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Crée d\'abord un album dans l\'onglet Albums !'),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
-      return;
-    }
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E1E1E) : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 16),
-            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey, borderRadius: BorderRadius.circular(2))),
-            const SizedBox(height: 16),
-            Text(
-              'Ajouter ${_selectedIds.length} fichiers à un album',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: albums.length,
-                itemBuilder: (context, index) {
-                  final albumName = albums[index];
-                  return ListTile(
-                    leading: Icon(Icons.album_rounded, color: Theme.of(context).primaryColor),
-                    title: Text(albumName),
-                    onTap: () {
-                      final List<String> currentFiles = List<String>.from(box.get(albumName) ?? []);
-                      for (var id in _selectedIds) {
-                        if (!currentFiles.contains(id)) {
-                          currentFiles.add(id);
-                        }
-                      }
-                      box.put(albumName, currentFiles);
-                      Navigator.pop(context);
-                      final count = _selectedIds.length;
-                      _deselectAll();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('$count fichiers ajoutés à "$albumName"'),
-                          backgroundColor: Colors.green,
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showAddToAlbumDialog(MediaFile file) {
-    final box = Hive.box('custom_albums');
-    final albums = box.keys.toList();
-
-    if (albums.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Crée d\'abord un album dans l\'onglet Albums !'),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
-      return;
-    }
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E1E1E) : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 16),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Theme.of(context).brightness == Brightness.dark ? Colors.grey[700] : Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Ajouter à un album',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text(
-                file.title,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Theme.of(context).brightness == Brightness.dark ? Colors.grey[400] : Colors.grey[600],
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: albums.length,
-                itemBuilder: (context, index) {
-                  final albumName = albums[index];
-                  final List<String> currentFiles = List<String>.from(box.get(albumName) ?? []);
-                  final bool alreadyInAlbum = currentFiles.contains(file.id);
-                  
-                  return ListTile(
-                    leading: Icon(
-                      Icons.album_rounded,
-                      color: alreadyInAlbum ? Colors.green : Theme.of(context).primaryColor,
-                    ),
-                    title: Text(albumName),
-                    subtitle: Text(
-                      alreadyInAlbum ? 'Déjà dans cet album' : '${currentFiles.length} fichiers',
-                      style: TextStyle(
-                        color: alreadyInAlbum ? Colors.green : Colors.grey,
-                        fontSize: 12,
-                      ),
-                    ),
-                    enabled: !alreadyInAlbum,
-                    onTap: () {
-                      currentFiles.add(file.id);
-                      box.put(albumName, currentFiles);
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Ajouté à "$albumName"'),
-                          backgroundColor: Colors.green,
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
   }
 
   @override
@@ -526,7 +252,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
             backgroundColor: Colors.transparent,
             elevation: 0,
             title: Text(
-              _isSelectionMode ? '${_selectedIds.length} sélectionné${_selectedIds.length > 1 ? 's' : ''}' : 'Accueil',
+              _isSelectionMode ? '${_selectedIds.length} sélectionné${_selectedIds.length > 1 ? 's' : ''}' : 'Vidéos',
               style: TextStyle(
                 color: isDark ? Colors.white : Colors.black87,
                 fontWeight: FontWeight.bold,
@@ -540,11 +266,6 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
                   icon: const Icon(Icons.select_all, color: Colors.white),
                   onPressed: _selectAll,
                   tooltip: 'Tout sélectionner',
-                ),
-                IconButton(
-                  icon: const Icon(Icons.album_outlined, color: Colors.white),
-                  onPressed: _showAddSelectedToAlbum,
-                  tooltip: 'Ajouter à un album',
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, color: Colors.white),
@@ -562,7 +283,6 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
                   onPressed: _showSortMenu,
                   tooltip: 'Trier',
                 ),
-                _buildAppBarIcon(Icons.queue_music, 'Playlists', () => Navigator.pushNamed(context, '/playlists'), isDark),
                 _buildAppBarIcon(Icons.favorite_outline, 'Favoris', () => Navigator.pushNamed(context, '/favorites'), isDark),
                 _buildAppBarIcon(Icons.settings, 'Paramètres', () => Navigator.push(
                   context,
@@ -574,7 +294,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
           body: _isLoading
               ? _buildShimmerLoading(isDark)
               : RefreshIndicator(
-                  onRefresh: _loadFiles,
+                  onRefresh: _loadVideos,
                   color: primaryColor,
                   child: SingleChildScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
@@ -586,11 +306,6 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
                           child: _buildSearchBar(isDark),
                         ),
 
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: _buildAnimatedTabs(isDark, primaryColor),
-                        ),
-
                         const SizedBox(height: 20),
 
                         Padding(
@@ -600,7 +315,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
 
                         const SizedBox(height: 24),
 
-                        if (_recentFiles.isNotEmpty && !_isSelectionMode) ...[
+                        if (_recentVideos.isNotEmpty && !_isSelectionMode) ...[
                           _buildSectionHeader('Récemment ajouté', isDark),
                           const SizedBox(height: 12),
                           SizedBox(
@@ -608,21 +323,18 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
                             child: ListView.builder(
                               scrollDirection: Axis.horizontal,
                               padding: const EdgeInsets.symmetric(horizontal: 12),
-                              itemCount: _recentFiles.length,
+                              itemCount: _recentVideos.length,
                               itemBuilder: (context, index) {
-                                return _buildAnimatedMediaCard(_recentFiles[index], isDark, primaryColor, index);
+                                return _buildAnimatedMediaCard(_recentVideos[index], isDark, primaryColor, index);
                               },
                             ),
                           ),
                           const SizedBox(height: 32),
                         ],
 
-                        _buildSectionHeader(
-                          _currentFilter == 'music' ? 'Toutes les musiques' : 'Toutes les vidéos',
-                          isDark,
-                        ),
+                        _buildSectionHeader('Toutes les vidéos', isDark),
                         
-                        if (_filteredFiles.isEmpty)
+                        if (_filteredVideos.isEmpty)
                           _buildEmptyState(isDark)
                         else
                           Padding(
@@ -630,9 +342,9 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
                             child: ListView.builder(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
-                              itemCount: _filteredFiles.length,
+                              itemCount: _filteredVideos.length,
                               itemBuilder: (context, index) {
-                                return _buildAnimatedListTile(_filteredFiles[index], isDark, primaryColor, index);
+                                return _buildAnimatedListTile(_filteredVideos[index], isDark, primaryColor, index);
                               },
                             ),
                           ),
@@ -669,150 +381,58 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
   }
 
   Widget _buildSearchBar(bool isDark) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.0, end: 1.0),
-      duration: const Duration(milliseconds: 600),
-      curve: Curves.easeOutCubic,
-      builder: (context, value, child) {
-        return Transform.translate(
-          offset: Offset(0, 20 * (1 - value)),
-          child: Opacity(
-            opacity: value,
-            child: child,
-          ),
-        );
-      },
-      child: TextField(
-        controller: _searchController,
-        onChanged: (_) => _applyFilter(),
-        style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 15),
-        decoration: InputDecoration(
-          hintText: 'Rechercher dans ta bibliothèque...',
-          hintStyle: TextStyle(color: isDark ? Colors.grey[600] : Colors.grey[400]),
-          prefixIcon: Icon(Icons.search_rounded, color: isDark ? Colors.grey[400] : Colors.grey[600]),
-          suffixIcon: _searchController.text.isNotEmpty
-              ? IconButton(
-                  icon: Icon(Icons.clear_rounded, color: isDark ? Colors.grey[400] : Colors.grey[600]),
-                  onPressed: () {
-                    _searchController.clear();
-                    _applyFilter();
-                  },
-                )
-              : null,
-          filled: true,
-          fillColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide.none,
-          ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+    return TextField(
+      controller: _searchController,
+      onChanged: (_) => _applyFilter(),
+      style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 15),
+      decoration: InputDecoration(
+        hintText: 'Rechercher une vidéo...',
+        hintStyle: TextStyle(color: isDark ? Colors.grey[600] : Colors.grey[400]),
+        prefixIcon: Icon(Icons.search_rounded, color: isDark ? Colors.grey[400] : Colors.grey[600]),
+        suffixIcon: _searchController.text.isNotEmpty
+            ? IconButton(
+                icon: Icon(Icons.clear_rounded, color: isDark ? Colors.grey[400] : Colors.grey[600]),
+                onPressed: () {
+                  _searchController.clear();
+                  _applyFilter();
+                },
+              )
+            : null,
+        filled: true,
+        fillColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
         ),
-      ),
-    );
-  }
-
-  Widget _buildAnimatedTabs(bool isDark, Color primaryColor) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1A1A1A) : Colors.grey[200],
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Expanded(child: _buildTab('Musique', 'music', Icons.music_note_rounded, isDark, primaryColor)),
-          Expanded(child: _buildTab('Vidéos', 'video', Icons.movie_rounded, isDark, primaryColor)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTab(String label, String type, IconData icon, bool isDark, Color primaryColor) {
-    bool isSelected = _currentFilter == type;
-    
-    return GestureDetector(
-      onTap: () => _switchTab(type),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? primaryColor : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: primaryColor.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : [],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
-              child: Icon(
-                icon,
-                key: ValueKey(isSelected),
-                size: 18,
-                color: isSelected ? Colors.white : (isDark ? Colors.grey[500] : Colors.grey[600]),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : (isDark ? Colors.grey[500] : Colors.grey[600]),
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                fontSize: 14,
-              ),
-            ),
-          ],
-        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       ),
     );
   }
 
   Widget _buildAnimatedCounter(bool isDark) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.0, end: 1.0),
-      duration: const Duration(milliseconds: 500),
-      builder: (context, value, child) {
-        return Transform.translate(
-          offset: Offset(0, 10 * (1 - value)),
-          child: Opacity(
-            opacity: value,
-            child: child,
+    return Row(
+      children: [
+        Text(
+          '${_filteredVideos.length} vidéos',
+          style: TextStyle(
+            color: isDark ? Colors.grey[500] : Colors.grey[600],
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0.5,
           ),
-        );
-      },
-      child: Row(
-        children: [
-          Text(
-            '${_filteredFiles.length} ${_currentFilter == 'music' ? 'musiques' : 'vidéos'}',
-            style: TextStyle(
-              color: isDark ? Colors.grey[500] : Colors.grey[600],
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.5,
-            ),
+        ),
+        const SizedBox(width: 8),
+        Icon(Icons.sort_rounded, size: 14, color: isDark ? Colors.grey[500] : Colors.grey[600]),
+        const SizedBox(width: 4),
+        Text(
+          _getSortLabel(),
+          style: TextStyle(
+            color: Theme.of(context).primaryColor,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
           ),
-          const SizedBox(width: 8),
-          Icon(Icons.sort_rounded, size: 14, color: isDark ? Colors.grey[500] : Colors.grey[600]),
-          const SizedBox(width: 4),
-          Text(
-            _getSortLabel(),
-            style: TextStyle(
-              color: Theme.of(context).primaryColor,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -873,7 +493,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
           mainAxisSize: MainAxisSize.min,
           children: [
             Hero(
-              tag: 'media_${file.id}',
+              tag: 'video_${file.id}',
               child: Container(
                 width: 160,
                 height: 160,
@@ -881,14 +501,12 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: file.isVideo
-                        ? [Colors.blue.withOpacity(0.3), Colors.blue.withOpacity(0.1)]
-                        : [primaryColor.withOpacity(0.3), primaryColor.withOpacity(0.1)],
+                    colors: [Colors.blue.withOpacity(0.3), Colors.blue.withOpacity(0.1)],
                   ),
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: (file.isVideo ? Colors.blue : primaryColor).withOpacity(0.2),
+                      color: Colors.blue.withOpacity(0.2),
                       blurRadius: 12,
                       offset: const Offset(0, 6),
                     ),
@@ -898,9 +516,9 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
                   children: [
                     Center(
                       child: Icon(
-                        file.isVideo ? Icons.movie_rounded : Icons.music_note_rounded,
+                        Icons.movie_rounded,
                         size: 48,
-                        color: file.isVideo ? Colors.blue : primaryColor,
+                        color: Colors.blue,
                       ),
                     ),
                     Positioned(
@@ -909,11 +527,11 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
                       child: Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: primaryColor,
+                          color: Colors.blue,
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: primaryColor.withOpacity(0.4),
+                              color: Colors.blue.withOpacity(0.4),
                               blurRadius: 8,
                               offset: const Offset(0, 2),
                             ),
@@ -1017,15 +635,13 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: file.isVideo
-                        ? [Colors.blue.withOpacity(0.3), Colors.blue.withOpacity(0.1)]
-                        : [primaryColor.withOpacity(0.3), primaryColor.withOpacity(0.1)],
+                    colors: [Colors.blue.withOpacity(0.3), Colors.blue.withOpacity(0.1)],
                   ),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
-                  file.isVideo ? Icons.movie_rounded : Icons.music_note_rounded,
-                  color: file.isVideo ? Colors.blue : primaryColor,
+                  Icons.movie_rounded,
+                  color: Colors.blue,
                   size: 28,
                 ),
               ),
@@ -1069,10 +685,8 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
                     _buildMenuItem(Icons.edit_rounded, 'Renommer', 'rename'),
                     _buildMenuItem(Icons.share_rounded, 'Envoyer', 'share'),
                     _buildMenuItem(Icons.delete_rounded, 'Supprimer', 'delete'),
-                    if (!file.isVideo) _buildMenuItem(Icons.music_note_rounded, 'Définir comme sonnerie', 'ringtone'),
                     const PopupMenuDivider(),
                     _buildMenuItem(Icons.favorite_rounded, 'Ajouter aux favoris', 'favorite', textColor: Colors.red),
-                    _buildMenuItem(Icons.album_rounded, 'Ajouter à un album', 'add_to_album', textColor: primaryColor),
                   ],
                 ),
             ],
@@ -1107,21 +721,9 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
       child: Center(
         child: Column(
           children: [
-            TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0.0, end: 1.0),
-              duration: const Duration(milliseconds: 800),
-              curve: Curves.elasticOut,
-              builder: (context, value, child) {
-                return Transform.scale(
-                  scale: value,
-                  child: child,
-                );
-              },
-              child: Icon(Icons.folder_open_rounded, size: 64, color: isDark ? Colors.grey[700] : Colors.grey[400]),
-            ),
-            const SizedBox(height: 16),
+Icon(Icons.videocam_off, size: 64, color: isDark ? Colors.grey[700] : Colors.grey[400]),            const SizedBox(height: 16),
             Text(
-              'Aucun fichier trouvé',
+              'Aucune vidéo trouvée',
               style: TextStyle(
                 color: isDark ? Colors.grey[500] : Colors.grey[600],
                 fontSize: 16,
@@ -1139,35 +741,17 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0.0, end: 1.0),
-            duration: const Duration(seconds: 2),
-            builder: (context, value, child) {
-              return Transform.rotate(
-                angle: value * 2 * 3.14159,
-                child: child,
-              );
-            },
-            child: Icon(
-              Icons.music_note_rounded,
-              size: 64,
-              color: Theme.of(context).primaryColor,
-            ),
+          Icon(
+            Icons.movie_rounded,
+            size: 64,
+            color: Colors.blue,
           ),
           const SizedBox(height: 24),
           Text(
-            'Chargement de ta bibliothèque...',
+            'Chargement de tes vidéos...',
             style: TextStyle(
               color: isDark ? Colors.grey[500] : Colors.grey[600],
               fontSize: 14,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Le premier scan peut prendre 10-20 secondes',
-            style: TextStyle(
-              color: isDark ? Colors.grey[600] : Colors.grey[500],
-              fontSize: 12,
             ),
           ),
         ],
@@ -1192,14 +776,8 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
       case 'delete':
         await _deleteFile(file, db);
         break;
-      case 'ringtone':
-        await _setAsRingtone(file);
-        break;
       case 'favorite':
         await _toggleFavorite(file, db);
-        break;
-      case 'add_to_album':
-        _showAddToAlbumDialog(file);
         break;
     }
   }
@@ -1312,9 +890,9 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
           await oldFile.rename(newPath);
           
           setState(() {
-            final index = _allFiles.indexWhere((f) => f.id == file.id);
+            final index = _allVideos.indexWhere((f) => f.id == file.id);
             if (index != -1) {
-              _allFiles[index] = MediaFile(
+              _allVideos[index] = MediaFile(
                 id: file.id,
                 title: newName,
                 artist: file.artist,
@@ -1366,7 +944,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
       final xFile = XFile(file.path);
       await Share.shareXFiles(
         [xFile],
-        text: 'Écoute "${file.title}" via MediaVault ',
+        text: 'Regarde "${file.title}" via MediaVault ',
         subject: file.title,
       );
     } catch (e) {
@@ -1419,7 +997,7 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
       
       await db.removeFavorite(file.id);
       setState(() {
-        _allFiles.removeWhere((f) => f.id == file.id);
+        _allVideos.removeWhere((f) => f.id == file.id);
         _applyFilter();
       });
       
@@ -1427,101 +1005,6 @@ class _LocalFilesScreenState extends State<LocalFilesScreen> with TickerProvider
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('"${file.title}" supprimé'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _setAsRingtone(MediaFile file) async {
-    if (file.isVideo) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Seuls les fichiers audio peuvent être définis comme sonnerie'),
-          backgroundColor: Colors.orange,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
-      return;
-    }
-
-    try {
-      final canWrite = await _ringtoneChannel.invokeMethod<bool>('canWriteSettings') ?? false;
-      
-      if (!canWrite) {
-        final openSettings = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: const Text('Permission requise', style: TextStyle(fontWeight: FontWeight.bold)),
-            content: const Text('Pour définir une sonnerie, tu dois autoriser l\'application à modifier les paramètres système.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Annuler'),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  await _ringtoneChannel.invokeMethod('openWriteSettings');
-                  Navigator.pop(context, true);
-                },
-                style: ElevatedButton.styleFrom(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                child: const Text('Autoriser'),
-              ),
-            ],
-          ),
-        );
-        
-        if (openSettings != true) return;
-        await Future.delayed(const Duration(seconds: 2));
-      }
-
-      final success = await _ringtoneChannel.invokeMethod<bool>(
-        'setAsRingtone',
-        {
-          'filePath': file.path,
-          'fileName': file.title,
-        },
-      );
-
-      if (mounted) {
-        if (success == true) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.music_note, color: Colors.white, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text('"${file.title}" défini comme sonnerie 🎵')),
-                ],
-              ),
-              backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Impossible de définir comme sonnerie'),
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur: ${e.toString()}'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

@@ -43,36 +43,49 @@ class DownloadService {
     }
   }
 
-  Future<List<MediaFile>> getDownloadedFiles() async {
+    Future<List<MediaFile>> getDownloadedFiles() async {
     List<MediaFile> files = [];
     
     try {
-      if (!_downloadDir.existsSync()) return files;
+      if (!_downloadDir.existsSync()) {
+        print('⚠️ Dossier inexistant: ${_downloadDir.path}');
+        return files;
+      }
 
       final entities = _downloadDir.listSync();
+      print('📁 Scan MediaVault: ${entities.length} éléments');
       
       for (var entity in entities) {
         if (entity is File) {
           final path = entity.path;
           final fileName = path.split(Platform.pathSeparator).last;
-          final extension = fileName.split('.').last.toLowerCase();
           
-          // ✅ DÉTECTER SI C'EST UN AUDIO OU VIDÉO BASÉ SUR LE NOM DU FICHIER
-          final isAudioFile = fileName.contains('_Audio');
-          final isVideoFile = fileName.contains('_Video');
+          final dotIndex = fileName.lastIndexOf('.');
+          if (dotIndex == -1) continue;
+          final extension = fileName.substring(dotIndex + 1).toLowerCase();
           
-          final isVideo = isVideoFile;
-          final isAudio = isAudioFile;
+          final isMediaExt = audioExtensions.contains(extension) || videoExtensions.contains(extension);
           
-          if (isVideo || isAudio) {
+          if (isMediaExt) {
             try {
               final stat = await entity.stat();
               if (stat.size <= 0) continue;
               
-              String title = fileName.replaceAll('.$extension', '');
+              String title = fileName.substring(0, dotIndex);
               String artist = 'Artiste inconnu';
               
-              // Enlever _Audio ou _Video du titre
+              // ✅ DÉTECTION AUDIO/VIDÉO PAR LE NOM
+              bool isVideo = videoExtensions.contains(extension);
+              
+              if (extension == 'mp4') {
+                if (fileName.contains('_Audio')) {
+                  isVideo = false; // C'est de l'audio !
+                } else {
+                  isVideo = true;
+                }
+              }
+              
+              // ✅ NETTOYER LE TITRE
               title = title.replaceAll('_Audio', '').replaceAll('_Video', '');
               
               if (title.contains(' - ')) {
@@ -99,7 +112,7 @@ class DownloadService {
                   path: path,
                   duration: Duration.zero,
                   format: extension,
-                  isVideo: isVideo, // ✅ Basé sur le nom du fichier
+                  isVideo: isVideo,
                   downloadDate: stat.modified,
                   isFromYouTube: true,
                 ));
@@ -110,6 +123,8 @@ class DownloadService {
           }
         }
       }
+      
+      print('✅ ${files.length} fichiers téléchargés trouvés');
     } catch (e) {
       print('❌ Erreur scan: $e');
     }

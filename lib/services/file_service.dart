@@ -13,23 +13,24 @@ class FileService {
     '3gp', 'ts', 'm2ts', 'mpg', 'mpeg', 'vob', 'ogv'
   ];
 
-  static const List<String> excludedDirs = [
-    'Android/data',
-    'Android/obb',
-    '.thumbnails',
-    '.Trash',
-    'LOST.DIR',
-    '.temp',
-    'cache',
-    '.cache',
-    'thumb',
-    '.thumb',
-    'WhatsApp/.Shared',
-    'Tencent',
-    '.facebook_cache',
-    '.instagram',
-    '.tiktok',
-    'DCIM/.thumbnails',
+  // ✅ DOSSIERS SPÉCIFIQUES À SCANNER (plus fiable que tout /storage/emulated/0)
+  static const List<String> scanDirs = [
+    '/storage/emulated/0/Music',
+    '/storage/emulated/0/Download',
+    '/storage/emulated/0/MediaVault',
+    '/storage/emulated/0/Music/MediaVault',
+    '/storage/emulated/0/DCIM',
+    '/storage/emulated/0/Movies',
+    '/storage/emulated/0/Recordings',
+    '/storage/emulated/0/Podcasts',
+    '/storage/emulated/0/Audiobooks',
+    '/storage/emulated/0/Ringtones',
+    '/storage/emulated/0/Notifications',
+    '/storage/emulated/0/Alarms',
+    '/storage/emulated/0/WhatsApp/Media/WhatsApp Audio',
+    '/storage/emulated/0/WhatsApp/Media/WhatsApp Video',
+    '/storage/emulated/0/Telegram/Telegram Audio',
+    '/storage/emulated/0/Telegram/Telegram Video',
   ];
 
   // ✅ CHARGER DEPUIS LE CACHE
@@ -38,7 +39,7 @@ class FileService {
       final box = await Hive.openBox('file_cache');
       final cachedData = box.get('scanned_files');
       
-      if (cachedData != null && cachedData is List) {
+      if (cachedData != null && cachedData is List && cachedData.isNotEmpty) {
         print('✅ Cache trouvé: ${cachedData.length} fichiers');
         return cachedData.map((data) {
           return MediaFile.fromLocal(
@@ -95,19 +96,8 @@ class FileService {
     }
   }
 
-  bool _isExcluded(String path) {
-    final lowerPath = path.toLowerCase();
-    for (var excluded in excludedDirs) {
-      if (lowerPath.contains(excluded.toLowerCase())) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   // ✅ SCAN COMPLET AVEC CACHE
   Future<List<MediaFile>> scanAllFiles({bool forceRescan = false}) async {
-    // Si pas de rescan forcé, charger depuis le cache
     if (!forceRescan) {
       final cached = await loadFromCache();
       if (cached.isNotEmpty) {
@@ -118,39 +108,24 @@ class FileService {
     print('🔄 Scan complet en cours...');
     List<MediaFile> allFiles = [];
     
-    final rootDir = Directory('/storage/emulated/0');
-    
-    if (await rootDir.exists()) {
-      print('📱 Scan de: ${rootDir.path}');
-      final files = await _scanDirectoryRecursive(rootDir, depth: 0, maxDepth: 15);
-      allFiles.addAll(files);
-    } else {
-      print('⚠️ Dossier principal introuvable');
-      final fallbackDirs = [
-        '/storage/emulated/0/Music',
-        '/storage/emulated/0/Download',
-        '/storage/emulated/0/MediaVault',
-        '/storage/emulated/0/Music/MediaVault',
-        '/storage/emulated/0/DCIM',
-        '/storage/emulated/0/Movies',
-        '/storage/emulated/0/Recordings',
-      ];
-      
-      for (var dirPath in fallbackDirs) {
-        final dir = Directory(dirPath);
-        if (await dir.exists()) {
-          final files = await _scanDirectoryRecursive(dir, depth: 0, maxDepth: 15);
-          allFiles.addAll(files);
-        }
+    // ✅ SCANNER CHAQUE DOSSIER SPÉCIFIQUE
+    for (var dirPath in scanDirs) {
+      final dir = Directory(dirPath);
+      if (await dir.exists()) {
+        print('📁 Scan: $dirPath');
+        final files = await _scanDirectoryRecursive(dir, depth: 0, maxDepth: 10);
+        print('✅ ${files.length} fichiers dans $dirPath');
+        allFiles.addAll(files);
       }
     }
     
+    // ✅ SUPPRIMER LES DOUBLONS
     final uniqueFiles = <String, MediaFile>{};
     for (var file in allFiles) {
       uniqueFiles[file.path] = file;
     }
     
-    print('✅ ${uniqueFiles.length} fichiers trouvés');
+    print('✅ ${uniqueFiles.length} fichiers uniques trouvés');
     
     await saveToCache(uniqueFiles.values.toList());
     
@@ -161,7 +136,6 @@ class FileService {
     List<MediaFile> files = [];
     
     if (depth > maxDepth) return files;
-    if (_isExcluded(dir.path)) return files;
     
     try {
       final entities = dir.listSync(followLinks: false);
@@ -195,6 +169,18 @@ class FileService {
             String title = fileName.substring(0, dotIndex);
             String artist = 'Inconnu';
 
+            // ✅ DÉTECTION AUDIO/VIDÉO POUR LES MP4
+            bool finalIsVideo = isVideo;
+            
+            if (extension == 'mp4') {
+              if (fileName.contains('_Audio')) {
+                finalIsVideo = false; // C'est de l'audio malgré l'extension mp4
+              }
+            }
+
+            // ✅ NETTOYER LE TITRE
+            title = title.replaceAll('_Audio', '').replaceAll('_Video', '');
+            
             if (title.contains(' - ')) {
               final firstDashIndex = title.indexOf(' - ');
               artist = title.substring(0, firstDashIndex).trim();
@@ -219,13 +205,13 @@ class FileService {
               path: path,
               duration: Duration.zero,
               format: extension,
-              isVideo: isVideo,
+              isVideo: finalIsVideo, // ✅ Utiliser la détection intelligente
             ));
           }
         }
       }
     } catch (e) {
-      // Ignorer les erreurs
+      print('⚠️ Erreur scan ${dir.path}: $e');
     }
     
     return files;

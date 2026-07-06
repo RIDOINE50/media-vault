@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/youtube_service.dart';
-import '../services/download_service.dart';
+import '../services/download_manager.dart'; // ✅ NOUVEAU
 import '../services/connectivity_service.dart';
 import '../services/settings_service.dart';
 import '../services/audio_service.dart';
 import '../services/database_service.dart';
 import '../widgets/no_connection_banner.dart';
-import '../widgets/download_progress_bar.dart';
+import '../widgets/download_progress_widget.dart'; // ✅ NOUVEAU
 import '../widgets/player_bar.dart';
 import 'video_player_screen.dart';
 
@@ -27,17 +27,12 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final YouTubeService _youtubeService = YouTubeService();
-  final DownloadService _downloadService = DownloadService();
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
   List<Map<String, dynamic>> _searchResults = [];
   List<String> _searchHistory = [];
   bool _isSearching = false;
-  bool _isDownloading = false;
-  double _downloadProgress = 0.0;
-  String _downloadingFileName = '';
-  bool _downloadComplete = false;
 
   // ✅ Catégories colorées
   final List<Map<String, dynamic>> _categories = [
@@ -63,7 +58,6 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchController.dispose();
     _searchFocusNode.dispose();
     _youtubeService.dispose();
-    _downloadService.dispose();
     super.dispose();
   }
 
@@ -120,7 +114,6 @@ class _SearchScreenState extends State<SearchScreen> {
 
     setState(() {
       _isSearching = true;
-      _downloadComplete = false;
     });
 
     _searchResults = await _youtubeService.search(query);
@@ -189,56 +182,35 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  Future<void> _download(String videoId, String title, bool isAudioOnly) async {
-    setState(() {
-      _isDownloading = true;
-      _downloadProgress = 0.0;
-      _downloadingFileName = title;
-      _downloadComplete = false;
-    });
-
-    var result = await _downloadService.downloadFromYouTube(
-      videoId: videoId,
-      isAudioOnly: isAudioOnly,
-      onProgress: (progress) {
-        setState(() {
-          _downloadProgress = progress;
-        });
-      },
-    );
-
-    setState(() {
-      _isDownloading = false;
-      _downloadComplete = result != null;
-    });
-
-    if (result != null) {
+  // ✅ NOUVELLE MÉTHODE : Ajouter au DownloadManager
+  void _addToDownloadQueue(String videoId, String title, bool isAudioOnly) {
+    final downloadManager = Provider.of<DownloadManager>(context, listen: false);
+    
+    final result = downloadManager.addDownload(videoId, title, isAudioOnly);
+    
+    if (result == 'already_exists') {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
+          content: const Text('Ce téléchargement est déjà en cours'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
           content: Row(
             children: [
-              Icon(Icons.check_circle, color: Colors.white),
-              SizedBox(width: 8),
-              Text('Téléchargement terminé !'),
+              const Icon(Icons.download, color: Colors.white, size: 20),
+              const SizedBox(width: 8),
+              Expanded(child: Text('Téléchargement ajouté : $title')),
             ],
           ),
           backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
-        ),
-      );
-
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) {
-          setState(() {
-            _downloadComplete = false;
-          });
-        }
-      });
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Erreur lors du téléchargement'),
-          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 2),
         ),
       );
     }
@@ -311,7 +283,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
               onTap: () {
                 Navigator.pop(context);
-                _download(videoId, title, true);
+                _addToDownloadQueue(videoId, title, true); // ✅ NOUVELLE MÉTHODE
               },
             ),
             ListTile(
@@ -337,7 +309,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
               onTap: () {
                 Navigator.pop(context);
-                _download(videoId, title, false);
+                _addToDownloadQueue(videoId, title, false); // ✅ NOUVELLE MÉTHODE
               },
             ),
             const SizedBox(height: 20),
@@ -419,6 +391,9 @@ class _SearchScreenState extends State<SearchScreen> {
                         ),
                       ),
 
+                      // ✅ WIDGET DE PROGRESSION DES TÉLÉCHARGEMENTS
+                      const DownloadProgressWidget(),
+
                       // 🎨 GRILLE DE CATÉGORIES
                       if (_searchResults.isEmpty && _searchController.text.isEmpty) ...[
                         Padding(
@@ -497,43 +472,6 @@ class _SearchScreenState extends State<SearchScreen> {
                                 Text(
                                   'Recherche en cours...',
                                   style: TextStyle(color: isDark ? Colors.grey[500] : Colors.grey[600]),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-
-                      // 📥 TÉLÉCHARGEMENT EN COURS
-                      if (_isDownloading)
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: DownloadProgressBar(
-                            progress: _downloadProgress,
-                            fileName: _downloadingFileName,
-                          ),
-                        ),
-
-                      // ✅ TÉLÉCHARGEMENT TERMINÉ
-                      if (_downloadComplete)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          child: Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.green),
-                            ),
-                            child: const Row(
-                              children: [
-                                Icon(Icons.check_circle, color: Colors.green, size: 20),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Téléchargement terminé !',
-                                  style: TextStyle(
-                                    color: Colors.green,
-                                    fontWeight: FontWeight.w500,
-                                  ),
                                 ),
                               ],
                             ),

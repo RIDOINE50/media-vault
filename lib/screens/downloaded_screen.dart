@@ -7,7 +7,7 @@ import '../services/settings_service.dart';
 import '../services/audio_service.dart';
 import '../widgets/player_bar.dart';
 import 'video_player_screen.dart';
-
+import '../services/file_service.dart'; // ✅ AJOUTER CETTE LIGNE
 class DownloadedScreen extends StatefulWidget {
   final AudioService audioService;
 
@@ -45,8 +45,10 @@ class _DownloadedScreenState extends State<DownloadedScreen> with TickerProvider
     super.dispose();
   }
 
-  Future<void> _loadDownloads() async {
+      Future<void> _loadDownloads() async {
     setState(() => _isLoading = true);
+    
+    // ✅ SCANNER DIRECTEMENT LE DOSSIER MediaVault (sans cache)
     final files = await _downloadService.getDownloadedFiles();
     
     // ✅ SUPPRESSION DES DOUBLONS

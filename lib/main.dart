@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'screens/local_files_screen.dart';
+import 'screens/music_screen.dart';
+import 'screens/videos_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/downloaded_screen.dart';
-import 'screens/albums_screen.dart';
 import 'screens/full_player_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/favorites_screen.dart';
@@ -14,6 +14,7 @@ import 'services/audio_service.dart';
 import 'services/connectivity_service.dart';
 import 'services/settings_service.dart';
 import 'services/database_service.dart';
+import 'services/download_manager.dart'; // ✅ NOUVEAU IMPORT
 import 'utils/permissions.dart';
 
 void main() async {
@@ -25,6 +26,7 @@ void main() async {
   await Hive.openBox('search_history');
   await Hive.openBox('playback_positions');
   await Hive.openBox('custom_albums');
+  await Hive.openBox('file_cache'); // ✅ AJOUTÉ POUR LE CACHE
   
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -45,6 +47,9 @@ void main() async {
   final audioService = AudioService(settingsService);
   audioService.databaseService = databaseService;
   await audioService.init();
+  
+  // ✅ CRÉATION DU DOWNLOAD MANAGER
+  final downloadManager = DownloadManager();
 
   runApp(
     MultiProvider(
@@ -52,6 +57,7 @@ void main() async {
         ChangeNotifierProvider.value(value: settingsService),
         Provider.value(value: databaseService),
         Provider.value(value: audioService),
+        ChangeNotifierProvider.value(value: downloadManager), // ✅ AJOUTÉ
       ],
       child: const MediaVaultApp(),
     ),
@@ -69,8 +75,7 @@ class _MediaVaultAppState extends State<MediaVaultApp> {
   final ConnectivityService _connectivityService = ConnectivityService();
   int _currentIndex = 0;
   bool _permissionsGranted = false;
-  final List<Widget> _screens = [];
-
+  
   @override
   void initState() {
     super.initState();
@@ -80,36 +85,28 @@ class _MediaVaultAppState extends State<MediaVaultApp> {
   Future<void> _initializeApp() async {
     await _connectivityService.init();
 
-    // ✅ TIMEOUT DE 3 SECONDES - PASSE QUAND MÊME APRÈS
     bool permissions;
     try {
       permissions = await PermissionService.requestAllPermissions()
           .timeout(const Duration(seconds: 3), onTimeout: () => false);
     } catch (e) {
-      print('⚠️ Erreur permissions: $e');
+      print('⚠️ Timeout permissions: $e');
       permissions = false;
     }
 
     if (!mounted) return;
 
-    final audioService = Provider.of<AudioService>(context, listen: false);
-
     setState(() {
-      _permissionsGranted = true; // ✅ FORCE LE PASSAGE TOUJOURS
-      _screens.clear();
-      _screens.addAll([
-        LocalFilesScreen(audioService: audioService),
-        SearchScreen(connectivityService: _connectivityService, audioService: audioService),
-        AlbumsScreen(audioService: audioService),
-        DownloadedScreen(audioService: audioService),
-      ]);
-      _currentIndex = 0;
+      _permissionsGranted = true;
     });
   }
 
   @override
   void dispose() {
     _connectivityService.dispose();
+    // ✅ DISPOSER LE DOWNLOAD MANAGER
+    final downloadManager = Provider.of<DownloadManager>(context, listen: false);
+    downloadManager.dispose();
     super.dispose();
   }
 
@@ -224,36 +221,40 @@ class _MediaVaultAppState extends State<MediaVaultApp> {
 
   Widget _buildMainScreen(AudioService audioService) {
     return Scaffold(
-      body: _screens.isEmpty
-          ? Center(child: CircularProgressIndicator(color: Theme.of(context).primaryColor))
-          : IndexedStack(
-              index: _currentIndex,
-              children: _screens,
-            ),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: [
+          MusicScreen(audioService: audioService),
+          VideosScreen(audioService: audioService),
+          SearchScreen(
+            connectivityService: _connectivityService,
+            audioService: audioService,
+          ),
+          DownloadedScreen(audioService: audioService),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
-          if (index < _screens.length) {
-            setState(() {
-              _currentIndex = index;
-            });
-          }
+          setState(() {
+            _currentIndex = index;
+          });
         },
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.folder_outlined),
-            selectedIcon: Icon(Icons.folder),
-            label: 'Fichiers',
+            icon: Icon(Icons.music_note_outlined),
+            selectedIcon: Icon(Icons.music_note),
+            label: 'Musique',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.movie_outlined),
+            selectedIcon: Icon(Icons.movie),
+            label: 'Vidéos',
           ),
           NavigationDestination(
             icon: Icon(Icons.search_outlined),
             selectedIcon: Icon(Icons.search),
             label: 'Rechercher',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.album_outlined),
-            selectedIcon: Icon(Icons.album),
-            label: 'Albums',
           ),
           NavigationDestination(
             icon: Icon(Icons.download_outlined),
