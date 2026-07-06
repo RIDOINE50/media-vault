@@ -13,24 +13,27 @@ class FileService {
     '3gp', 'ts', 'm2ts', 'mpg', 'mpeg', 'vob', 'ogv'
   ];
 
-  // ✅ DOSSIERS SPÉCIFIQUES À SCANNER (plus fiable que tout /storage/emulated/0)
-  static const List<String> scanDirs = [
-    '/storage/emulated/0/Music',
-    '/storage/emulated/0/Download',
-    '/storage/emulated/0/MediaVault',
-    '/storage/emulated/0/Music/MediaVault',
-    '/storage/emulated/0/DCIM',
-    '/storage/emulated/0/Movies',
-    '/storage/emulated/0/Recordings',
-    '/storage/emulated/0/Podcasts',
-    '/storage/emulated/0/Audiobooks',
-    '/storage/emulated/0/Ringtones',
-    '/storage/emulated/0/Notifications',
-    '/storage/emulated/0/Alarms',
-    '/storage/emulated/0/WhatsApp/Media/WhatsApp Audio',
-    '/storage/emulated/0/WhatsApp/Media/WhatsApp Video',
-    '/storage/emulated/0/Telegram/Telegram Audio',
-    '/storage/emulated/0/Telegram/Telegram Video',
+  // ✅ Dossiers à exclure (système, cache, etc.)
+  static const List<String> excludedDirs = [
+    r'$Recycle.Bin',           // ✅ Raw string pour éviter l'erreur
+    r'$RECYCLE.BIN',
+    'System Volume Information',
+    '.thumbnails',
+    '.Trash',
+    'LOST.DIR',
+    '.temp',
+    'cache',
+    '.cache',
+    'thumb',
+    '.thumb',
+    'Android/data',
+    'Android/obb',
+    'WhatsApp/.Shared',
+    'Tencent',
+    '.facebook_cache',
+    '.instagram',
+    '.tiktok',
+    'DCIM/.thumbnails',
   ];
 
   // ✅ CHARGER DEPUIS LE CACHE
@@ -90,10 +93,64 @@ class FileService {
     try {
       final box = await Hive.openBox('file_cache');
       await box.delete('scanned_files');
-      print('️ Cache vidé');
+      print('✅ Cache vidé');
     } catch (e) {
       print('⚠️ Erreur vidage cache: $e');
     }
+  }
+
+  bool _isExcluded(String path) {
+    final lowerPath = path.toLowerCase();
+    for (var excluded in excludedDirs) {
+      if (lowerPath.contains(excluded.toLowerCase())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // ✅ GET SCAN DIRECTORIES - Android et Windows
+  static List<String> getScanDirectories() {
+    if (Platform.isAndroid) {
+      return [
+        '/storage/emulated/0/Music',
+        '/storage/emulated/0/Download',
+        '/storage/emulated/0/MediaVault',
+        '/storage/emulated/0/Music/MediaVault',
+        '/storage/emulated/0/DCIM',
+        '/storage/emulated/0/Movies',
+        '/storage/emulated/0/Recordings',
+        '/storage/emulated/0/Podcasts',
+        '/storage/emulated/0/Audiobooks',
+        '/storage/emulated/0/Ringtones',
+        '/storage/emulated/0/Notifications',
+        '/storage/emulated/0/Alarms',
+        '/storage/emulated/0/WhatsApp/Media/WhatsApp Audio',
+        '/storage/emulated/0/WhatsApp/Media/WhatsApp Video',
+        '/storage/emulated/0/Telegram/Telegram Audio',
+        '/storage/emulated/0/Telegram/Telegram Video',
+        '/storage/emulated/0/Bluetooth',
+      ];
+    } else if (Platform.isWindows) {
+      final userProfile = Platform.environment['USERPROFILE'] ?? '';
+      return [
+        if (userProfile.isNotEmpty) ...[
+          '$userProfile\\Music',
+          '$userProfile\\Downloads',
+          '$userProfile\\Videos',
+        ],
+      ];
+    } else if (Platform.isMacOS || Platform.isLinux) {
+      final home = Platform.environment['HOME'] ?? '';
+      return [
+        if (home.isNotEmpty) ...[
+          '$home/Music',
+          '$home/Downloads',
+          '$home/Videos',
+        ],
+      ];
+    }
+    return [];
   }
 
   // ✅ SCAN COMPLET AVEC CACHE
@@ -101,6 +158,7 @@ class FileService {
     if (!forceRescan) {
       final cached = await loadFromCache();
       if (cached.isNotEmpty) {
+        print('✅ Utilisation du cache: ${cached.length} fichiers');
         return cached;
       }
     }
@@ -108,14 +166,20 @@ class FileService {
     print('🔄 Scan complet en cours...');
     List<MediaFile> allFiles = [];
     
-    // ✅ SCANNER CHAQUE DOSSIER SPÉCIFIQUE
+    final scanDirs = getScanDirectories();
+    print('📁 Dossiers à scanner: ${scanDirs.length}');
+    
     for (var dirPath in scanDirs) {
       final dir = Directory(dirPath);
       if (await dir.exists()) {
         print('📁 Scan: $dirPath');
-        final files = await _scanDirectoryRecursive(dir, depth: 0, maxDepth: 10);
-        print('✅ ${files.length} fichiers dans $dirPath');
-        allFiles.addAll(files);
+        try {
+          final files = await _scanDirectoryRecursive(dir, depth: 0, maxDepth: 10);
+          print('✅ ${files.length} fichiers dans $dirPath');
+          allFiles.addAll(files);
+        } catch (e) {
+          print('⚠️ Erreur scan $dirPath: $e');
+        }
       }
     }
     
@@ -136,6 +200,7 @@ class FileService {
     List<MediaFile> files = [];
     
     if (depth > maxDepth) return files;
+    if (_isExcluded(dir.path)) return files;
     
     try {
       final entities = dir.listSync(followLinks: false);
@@ -205,26 +270,39 @@ class FileService {
               path: path,
               duration: Duration.zero,
               format: extension,
-              isVideo: finalIsVideo, // ✅ Utiliser la détection intelligente
+              isVideo: finalIsVideo,
             ));
           }
         }
       }
     } catch (e) {
-      print('⚠️ Erreur scan ${dir.path}: $e');
+      // ✅ Ignorer les erreurs de permission
+      print('⚠️ Erreur scan ${dir.path}: ${e.toString().split('\n').first}');
     }
     
     return files;
   }
 
   Future<List<MediaFile>> getDownloadedFiles() async {
-    final dir = Directory('/storage/emulated/0/Music/MediaVault');
+    String downloadDir;
+    
+    if (Platform.isAndroid) {
+      downloadDir = '/storage/emulated/0/Music/MediaVault';
+    } else if (Platform.isWindows) {
+      final userProfile = Platform.environment['USERPROFILE'] ?? '';
+      downloadDir = '$userProfile\\Downloads\\MediaVault';
+    } else {
+      return [];
+    }
+    
+    final dir = Directory(downloadDir);
     if (await dir.exists()) {
       return await _scanDirectoryRecursive(dir, depth: 0, maxDepth: 5);
     }
     return [];
   }
 
+  // ✅ MÉTHODES DE TRI (STATIC)
   static List<MediaFile> sortByRecentDesc(List<MediaFile> files) {
     final sorted = List<MediaFile>.from(files);
     sorted.sort((a, b) {

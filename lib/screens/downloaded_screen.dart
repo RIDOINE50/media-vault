@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/media_file.dart';
 import '../services/download_service.dart';
+import '../services/download_manager.dart'; // ✅ AJOUTER
 import '../services/settings_service.dart';
 import '../services/audio_service.dart';
 import '../widgets/player_bar.dart';
 import 'video_player_screen.dart';
-import '../services/file_service.dart'; // ✅ AJOUTER CETTE LIGNE
+import '../services/file_service.dart';
+
 class DownloadedScreen extends StatefulWidget {
   final AudioService audioService;
 
@@ -36,22 +38,42 @@ class _DownloadedScreenState extends State<DownloadedScreen> with TickerProvider
       duration: const Duration(milliseconds: 600),
     );
     _loadDownloads();
+    
+    // ✅ ÉCOUTER LES CHANGEMENTS DU DOWNLOAD MANAGER
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final downloadManager = Provider.of<DownloadManager>(context, listen: false);
+      downloadManager.addListener(_onDownloadChanged);
+    });
   }
 
   @override
   void dispose() {
+    // ✅ SUPPRIMER L'ÉCOUTEUR
+    final downloadManager = Provider.of<DownloadManager>(context, listen: false);
+    downloadManager.removeListener(_onDownloadChanged);
+    
     _downloadService.dispose();
     _listAnimationController.dispose();
     super.dispose();
   }
 
-      Future<void> _loadDownloads() async {
+  // ✅ APPELÉ QUAND UN TÉLÉCHARGEMENT CHANGE D'ÉTAT
+  void _onDownloadChanged() {
+    final downloadManager = Provider.of<DownloadManager>(context, listen: false);
+    final completedDownloads = downloadManager.completedDownloads;
+    
+    // Si des téléchargements viennent de se terminer, recharger
+    if (completedDownloads.isNotEmpty) {
+      print('🔄 Téléchargements terminés détectés: ${completedDownloads.length}');
+      _loadDownloads();
+    }
+  }
+
+  Future<void> _loadDownloads() async {
     setState(() => _isLoading = true);
     
-    // ✅ FORCER UN RESCAN RAPIDE DU DOSSIER MediaVault
     final files = await _downloadService.getDownloadedFiles();
     
-    // ✅ SUPPRESSION DES DOUBLONS
     final uniqueFiles = <String, MediaFile>{};
     for (var file in files) {
       uniqueFiles[file.path] = file;
@@ -65,15 +87,13 @@ class _DownloadedScreenState extends State<DownloadedScreen> with TickerProvider
     _listAnimationController.forward(from: 0);
   }
 
-  // ✅ CORRECTION LECTURE VIDÉO vs AUDI
-    void _playFile(MediaFile file) {
-    print(' Lecture: ${file.title} | isVideo: ${file.isVideo} | format: ${file.format}');
+  void _playFile(MediaFile file) {
+    print('🎵 Lecture: ${file.title} | isVideo: ${file.isVideo} | format: ${file.format}');
     
     int index = _filteredFiles.indexOf(file);
     if (index != -1) {
-      // ✅ VIDÉO : Ouvrir le lecteur vidéo
       if (file.isVideo) {
-        print(' Ouverture VideoPlayerScreen');
+        print('🎬 Ouverture VideoPlayerScreen');
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -84,7 +104,6 @@ class _DownloadedScreenState extends State<DownloadedScreen> with TickerProvider
           ),
         );
       } else {
-        // ✅ AUDIO : Ouvrir le lecteur audio (même si c'est du MP4)
         print('🎵 Ouverture lecteur audio');
         widget.audioService.setPlaylist(_filteredFiles, index);
         Future.delayed(const Duration(milliseconds: 300), () {

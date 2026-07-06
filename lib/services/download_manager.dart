@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'download_service.dart';
-import 'file_service.dart'; // ✅ AJOUTER
+import 'file_service.dart';
+
 class DownloadTask {
   final String videoId;
   final String title;
@@ -29,8 +30,9 @@ enum DownloadStatus {
 class DownloadManager extends ChangeNotifier {
   final DownloadService _downloadService = DownloadService();
   final List<DownloadTask> _downloads = [];
-  final int _maxConcurrentDownloads = 3; // ✅ Limite de téléchargements simultanés
+  final int _maxConcurrentDownloads = 3;
   int _activeDownloads = 0;
+  bool _isProcessing = false; // ✅ AJOUTER CE FLAG
   
   List<DownloadTask> get downloads => List.unmodifiable(_downloads);
   
@@ -43,9 +45,7 @@ class DownloadManager extends ChangeNotifier {
   List<DownloadTask> get failedDownloads => 
     _downloads.where((d) => d.status == DownloadStatus.failed).toList();
 
-  // ✅ AJOUTER UN NOUVEAU TÉLÉCHARGEMENT
   String addDownload(String videoId, String title, bool isAudioOnly) {
-    // Vérifier si déjà en cours
     final existing = _downloads.firstWhere(
       (d) => d.videoId == videoId,
       orElse: () => DownloadTask(videoId: '', title: '', isAudioOnly: false),
@@ -64,26 +64,33 @@ class DownloadManager extends ChangeNotifier {
     _downloads.add(task);
     notifyListeners();
     
-    // Lancer le téléchargement si on n'a pas atteint la limite
+    // ✅ LANCER LE TRAITEMENT DE LA FILE
     _processQueue();
     
     return task.videoId;
   }
 
-  // ✅ PROCESSUS DE FILE D'ATTENTE
+  // ✅ CORRIGÉ : ÉVITER LA RÉCURSION
   Future<void> _processQueue() async {
+    if (_isProcessing) return; // ✅ SI DÉJÀ EN COURS, SORTIR
     if (_activeDownloads >= _maxConcurrentDownloads) return;
     
     final queued = _downloads.where((d) => d.status == DownloadStatus.queued).toList();
-    
     if (queued.isEmpty) return;
     
-    final task = queued.first;
-    await _startDownload(task);
+    _isProcessing = true; // ✅ MARQUER COMME EN COURS
+    
+    for (var task in queued) {
+      if (_activeDownloads >= _maxConcurrentDownloads) break;
+      
+      // ✅ LANCER SANS ATTENDRE (fire and forget)
+      _startDownload(task);
+    }
+    
+    _isProcessing = false; // ✅ MARQUER COMME TERMINÉ
   }
 
-  // ✅ DÉMARRER UN TÉLÉCHARGEMENT
-    // ✅ DÉMARRER UN TÉLÉCHARGEMENT
+  // ✅ CORRIGÉ : NE PLUS APPELER _processQueue DANS FINALLY
   Future<void> _startDownload(DownloadTask task) async {
     _activeDownloads++;
     task.status = DownloadStatus.downloading;
@@ -104,7 +111,6 @@ class DownloadManager extends ChangeNotifier {
         task.status = DownloadStatus.completed;
         task.progress = 1.0;
         
-        // ✅ FORCER LA MISE À JOUR DU CACHE APRÈS TÉLÉCHARGEMENT
         print('🔄 Mise à jour du cache après téléchargement...');
         await _forceCacheUpdate();
         
@@ -120,12 +126,13 @@ class DownloadManager extends ChangeNotifier {
       _activeDownloads--;
       notifyListeners();
       
-      // Lancer le prochain téléchargement en file d'attente
-      _processQueue();
+      // ✅ RELANCER LE TRAITEMENT DE LA FILE (MAIS PAS DE RÉCURSION)
+      Future.delayed(const Duration(milliseconds: 100), () {
+        _processQueue();
+      });
     }
   }
 
-  // ✅ METTRE À JOUR LE CACHE
   Future<void> _forceCacheUpdate() async {
     try {
       final fileService = FileService();
@@ -137,7 +144,6 @@ class DownloadManager extends ChangeNotifier {
     }
   }
 
-  // ✅ ANNULER UN TÉLÉCHARGEMENT
   void cancelDownload(String videoId) {
     final task = _downloads.firstWhere(
       (d) => d.videoId == videoId,
@@ -150,13 +156,11 @@ class DownloadManager extends ChangeNotifier {
     }
   }
 
-  // ✅ SUPPRIMER UN TÉLÉCHARGEMENT TERMINÉ/ÉCHOUÉ
   void removeDownload(String videoId) {
     _downloads.removeWhere((d) => d.videoId == videoId);
     notifyListeners();
   }
 
-  // ✅ EFFACER TOUS LES TÉLÉCHARGEMENTS TERMINÉS/ÉCHOUÉS
   void clearCompleted() {
     _downloads.removeWhere((d) => 
       d.status == DownloadStatus.completed || 
