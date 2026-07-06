@@ -58,6 +58,7 @@ class _DownloadedScreenState extends State<DownloadedScreen> with TickerProvider
   }
 
   // ✅ APPELÉ QUAND UN TÉLÉCHARGEMENT CHANGE D'ÉTAT
+    // ✅ APPELÉ QUAND UN TÉLÉCHARGEMENT CHANGE D'ÉTAT
   void _onDownloadChanged() {
     final downloadManager = Provider.of<DownloadManager>(context, listen: false);
     final completedDownloads = downloadManager.completedDownloads;
@@ -65,25 +66,41 @@ class _DownloadedScreenState extends State<DownloadedScreen> with TickerProvider
     // Si des téléchargements viennent de se terminer, recharger
     if (completedDownloads.isNotEmpty) {
       print('🔄 Téléchargements terminés détectés: ${completedDownloads.length}');
-      _loadDownloads();
+      
+      // ✅ AJOUTER UN DÉLAI POUR LAISSER LE TEMPS AU FICHIER D'ÊTRE ÉCRIT
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          print('🔄 Rechargement de la liste après délai...');
+          _loadDownloads();
+        }
+      });
     }
   }
 
-  Future<void> _loadDownloads() async {
+    Future<void> _loadDownloads() async {
+    // ✅ ÉVITER LES APPELS MULTIPLES
+    if (_isLoading) return;
+    
     setState(() => _isLoading = true);
     
+    print('📁 Scan du dossier MediaVault...');
     final files = await _downloadService.getDownloadedFiles();
+    
+    print('✅ ${files.length} fichiers trouvés');
+    for (var file in files) {
+      print('  - ${file.title} (${file.format}) - isVideo: ${file.isVideo}');
+    }
     
     final uniqueFiles = <String, MediaFile>{};
     for (var file in files) {
       uniqueFiles[file.path] = file;
-      print('📁 Fichier téléchargé: ${file.title} | isVideo: ${file.isVideo}');
     }
     
     setState(() {
       _downloadedFiles = uniqueFiles.values.toList();
       _isLoading = false;
     });
+    
     _listAnimationController.forward(from: 0);
   }
 

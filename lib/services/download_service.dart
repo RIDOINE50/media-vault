@@ -9,7 +9,7 @@ class DownloadService {
 
   static const List<String> audioExtensions = [
     'mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma', 'opus', 
-    'amr', 'aiff', 'alac', 'm4b', 'ape', 'mid', 'midi', 'mka', 'mp4' // ✅ AJOUTER mp4 comme audio
+    'amr', 'aiff', 'alac', 'm4b', 'ape', 'mid', 'midi', 'mka', 'mp4'
   ];
   
   static const List<String> videoExtensions = [
@@ -43,7 +43,7 @@ class DownloadService {
     }
   }
 
-    Future<List<MediaFile>> getDownloadedFiles() async {
+  Future<List<MediaFile>> getDownloadedFiles() async {
     List<MediaFile> files = [];
     
     try {
@@ -74,18 +74,16 @@ class DownloadService {
               String title = fileName.substring(0, dotIndex);
               String artist = 'Artiste inconnu';
               
-              // ✅ DÉTECTION AUDIO/VIDÉO PAR LE NOM
               bool isVideo = videoExtensions.contains(extension);
               
               if (extension == 'mp4') {
                 if (fileName.contains('_Audio')) {
-                  isVideo = false; // C'est de l'audio !
+                  isVideo = false;
                 } else {
                   isVideo = true;
                 }
               }
               
-              // ✅ NETTOYER LE TITRE
               title = title.replaceAll('_Audio', '').replaceAll('_Video', '');
               
               if (title.contains(' - ')) {
@@ -139,7 +137,7 @@ class DownloadService {
   }) async {
     for (int attempt = 1; attempt <= 3; attempt++) {
       try {
-        print(' Tentative $attempt/3: $videoId');
+        print('🎬 Tentative $attempt/3: $videoId');
         
         final result = await _downloadInternal(
           videoId: videoId,
@@ -179,12 +177,11 @@ class DownloadService {
     final video = await yt.videos.get(videoId);
     final title = video.title.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
     
-    print(' Titre: $title');
+    print('📹 Titre: $title');
 
     final manifest = await yt.videos.streamsClient.getManifest(videoId);
     
     if (isAudioOnly) {
-      // ✅ UTILISER STREAM PROGRESSIF (fiable)
       final progressiveStreams = manifest.muxed.toList();
       
       if (progressiveStreams.isEmpty) {
@@ -194,9 +191,8 @@ class DownloadService {
       
       final bestStream = progressiveStreams.last;
       
-      print(' Stream trouvé: ${bestStream.qualityLabel}');
+      print('🎵 Stream trouvé: ${bestStream.qualityLabel}');
       
-      // ✅ NOMMER LE FICHIER AVEC _Audio pour le détecter comme audio
       final fileName = '${title}_Audio.mp4';
       final filePath = '${_downloadDir.path}${Platform.pathSeparator}$fileName';
       
@@ -210,36 +206,59 @@ class DownloadService {
       
       print('📊 Taille: ${totalBytes ~/ 1024 ~/ 1024} MB');
       
-      await for (final data in stream.timeout(const Duration(seconds: 60))) {
-        fileStream.add(data);
-        downloadedBytes += data.length;
-        
-        final progress = downloadedBytes / totalBytes;
-        final progressPercent = (progress * 100).toInt();
-        
-        if (progressPercent - lastProgressUpdate >= 5 || progressPercent == 100) {
-          print(' Progress: $progressPercent%');
-          lastProgressUpdate = progressPercent;
+      try {
+        // ✅ TIMEOUT PLUS LONG POUR ANDROID (120s au lieu de 60s)
+        await for (final data in stream.timeout(const Duration(seconds: 120))) {
+          fileStream.add(data);
+          downloadedBytes += data.length;
+          
+          // ✅ CLAMPER LE PROGRESS À 1.0 MAX
+          final progress = (downloadedBytes / totalBytes).clamp(0.0, 1.0);
+          final progressPercent = (progress * 100).toInt();
+          
+          if (progressPercent - lastProgressUpdate >= 5 || progressPercent == 100) {
+            print('📥 Progress: $progressPercent%');
+            lastProgressUpdate = progressPercent;
+          }
+          
+          onProgress(progress);
         }
-        
-        onProgress(progress);
+      } catch (e) {
+        print('❌ Erreur stream: $e');
+        await fileStream.close();
+        if (file.existsSync()) {
+          await file.delete();
+        }
+        return null;
       }
       
-      await fileStream.flush();
-      await fileStream.close();
+      // ✅ FLUSH ET CLOSE AVEC GESTION D'ERREUR
+      try {
+        await fileStream.flush();
+        await fileStream.close();
+      } catch (e) {
+        print('⚠️ Erreur flush/close: $e');
+      }
       
-      await Future.delayed(const Duration(milliseconds: 500));
+      // ✅ DÉLAI PLUS LONG POUR ANDROID (2s au lieu de 500ms)
+      await Future.delayed(const Duration(seconds: 2));
       
       if (!file.existsSync()) {
         print('❌ Fichier non créé');
         return null;
       }
       
-      final finalSize = await file.length();
-      
-      if (finalSize <= 0) {
-        print('❌ Fichier vide');
-        await file.delete();
+      try {
+        final finalSize = await file.length();
+        print('📊 Taille finale: ${finalSize ~/ 1024} KB');
+        
+        if (finalSize <= 0) {
+          print('❌ Fichier vide');
+          await file.delete();
+          return null;
+        }
+      } catch (e) {
+        print('⚠️ Erreur lecture taille: $e');
         return null;
       }
       
@@ -247,7 +266,6 @@ class DownloadService {
       return filePath;
       
     } else {
-      // VIDÉO
       final progressiveStreams = manifest.muxed.toList();
       
       if (progressiveStreams.isEmpty) {
@@ -270,30 +288,53 @@ class DownloadService {
       int downloadedBytes = 0;
       int lastProgressUpdate = 0;
       
-      await for (final data in stream.timeout(const Duration(seconds: 60))) {
-        fileStream.add(data);
-        downloadedBytes += data.length;
-        
-        final progress = downloadedBytes / totalBytes;
-        final progressPercent = (progress * 100).toInt();
-        
-        if (progressPercent - lastProgressUpdate >= 5 || progressPercent == 100) {
-          print(' Progress: $progressPercent%');
-          lastProgressUpdate = progressPercent;
+      try {
+        await for (final data in stream.timeout(const Duration(seconds: 120))) {
+          fileStream.add(data);
+          downloadedBytes += data.length;
+          
+          final progress = (downloadedBytes / totalBytes).clamp(0.0, 1.0);
+          final progressPercent = (progress * 100).toInt();
+          
+          if (progressPercent - lastProgressUpdate >= 5 || progressPercent == 100) {
+            print('📥 Progress: $progressPercent%');
+            lastProgressUpdate = progressPercent;
+          }
+          
+          onProgress(progress);
         }
-        
-        onProgress(progress);
+      } catch (e) {
+        print('❌ Erreur stream: $e');
+        await fileStream.close();
+        if (file.existsSync()) {
+          await file.delete();
+        }
+        return null;
       }
       
-      await fileStream.flush();
-      await fileStream.close();
+      try {
+        await fileStream.flush();
+        await fileStream.close();
+      } catch (e) {
+        print('⚠️ Erreur flush/close: $e');
+      }
       
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(const Duration(seconds: 2));
       
-      final finalSize = await file.length();
+      if (!file.existsSync()) {
+        print('❌ Fichier non créé');
+        return null;
+      }
       
-      if (finalSize <= 0) {
-        await file.delete();
+      try {
+        final finalSize = await file.length();
+        
+        if (finalSize <= 0) {
+          await file.delete();
+          return null;
+        }
+      } catch (e) {
+        print('⚠️ Erreur lecture taille: $e');
         return null;
       }
       
