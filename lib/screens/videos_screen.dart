@@ -272,23 +272,26 @@ class _VideosScreenState extends State<VideosScreen> with TickerProviderStateMix
                   onPressed: _deselectAll,
                   tooltip: 'Annuler',
                 ),
-              ] else ...[
-                IconButton(
-                  icon: Icon(Icons.checklist_outlined, color: isDark ? Colors.white : Colors.black87),
-                  onPressed: _toggleSelectionMode,
-                  tooltip: 'Sélection multiple',
-                ),
-                IconButton(
-                  icon: Icon(Icons.sort_rounded, color: isDark ? Colors.white : Colors.black87),
-                  onPressed: _showSortMenu,
-                  tooltip: 'Trier',
-                ),
-                _buildAppBarIcon(Icons.favorite_outline, 'Favoris', () => Navigator.pushNamed(context, '/favorites'), isDark),
-                _buildAppBarIcon(Icons.settings, 'Paramètres', () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SettingsScreen()),
-                ), isDark),
-              ],
+              ]// Dans actions, remplace par :
+else ...[
+  IconButton(
+    icon: Icon(Icons.checklist_outlined, color: isDark ? Colors.white : Colors.black87),
+    onPressed: _toggleSelectionMode,
+    tooltip: 'Sélection multiple',
+  ),
+  IconButton(
+    icon: Icon(Icons.sort_rounded, color: isDark ? Colors.white : Colors.black87),
+    onPressed: _showSortMenu,
+    tooltip: 'Trier',
+  ),
+  _buildAppBarIcon(Icons.favorite_outline, 'Favoris', () => Navigator.pushNamed(context, '/favorites'), isDark),
+  _buildAppBarIcon(Icons.settings, 'Paramètres', () => Navigator.push(
+    context,
+    MaterialPageRoute(builder: (context) => const SettingsScreen()),
+  ), isDark),
+  // ✅ Déplacé à la fin
+  _buildAppBarIcon(Icons.queue_music, 'Playlists', () => Navigator.pushNamed(context, '/playlists'), isDark),
+],
             ],
           ),
           body: _isLoading

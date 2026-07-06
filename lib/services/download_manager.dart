@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'download_service.dart';
-
+import 'file_service.dart'; // ✅ AJOUTER
 class DownloadTask {
   final String videoId;
   final String title;
@@ -83,6 +83,7 @@ class DownloadManager extends ChangeNotifier {
   }
 
   // ✅ DÉMARRER UN TÉLÉCHARGEMENT
+    // ✅ DÉMARRER UN TÉLÉCHARGEMENT
   Future<void> _startDownload(DownloadTask task) async {
     _activeDownloads++;
     task.status = DownloadStatus.downloading;
@@ -102,6 +103,12 @@ class DownloadManager extends ChangeNotifier {
         task.filePath = filePath;
         task.status = DownloadStatus.completed;
         task.progress = 1.0;
+        
+        // ✅ FORCER LA MISE À JOUR DU CACHE APRÈS TÉLÉCHARGEMENT
+        print('🔄 Mise à jour du cache après téléchargement...');
+        await _forceCacheUpdate();
+        
+        print('✅ Téléchargement terminé: $filePath');
       } else {
         task.status = DownloadStatus.failed;
         task.error = 'Échec du téléchargement';
@@ -115,6 +122,18 @@ class DownloadManager extends ChangeNotifier {
       
       // Lancer le prochain téléchargement en file d'attente
       _processQueue();
+    }
+  }
+
+  // ✅ METTRE À JOUR LE CACHE
+  Future<void> _forceCacheUpdate() async {
+    try {
+      final fileService = FileService();
+      await fileService.clearCache();
+      await fileService.scanAllFiles(forceRescan: true);
+      print('✅ Cache mis à jour');
+    } catch (e) {
+      print('⚠️ Erreur mise à jour cache: $e');
     }
   }
 

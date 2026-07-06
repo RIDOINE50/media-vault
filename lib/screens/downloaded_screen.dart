@@ -48,14 +48,14 @@ class _DownloadedScreenState extends State<DownloadedScreen> with TickerProvider
       Future<void> _loadDownloads() async {
     setState(() => _isLoading = true);
     
-    // ✅ SCANNER DIRECTEMENT LE DOSSIER MediaVault (sans cache)
+    // ✅ FORCER UN RESCAN RAPIDE DU DOSSIER MediaVault
     final files = await _downloadService.getDownloadedFiles();
     
     // ✅ SUPPRESSION DES DOUBLONS
     final uniqueFiles = <String, MediaFile>{};
     for (var file in files) {
       uniqueFiles[file.path] = file;
-      print('📁 Fichier: ${file.title} | isVideo: ${file.isVideo} | format: ${file.format}');
+      print('📁 Fichier téléchargé: ${file.title} | isVideo: ${file.isVideo}');
     }
     
     setState(() {
