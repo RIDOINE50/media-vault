@@ -24,7 +24,9 @@ class DownloadService {
   Future<void> _initDownloadDir() async {
     try {
       if (Platform.isAndroid) {
-        _downloadDir = Directory('/storage/emulated/0/Music/MediaVault');
+        // ✅ UTILISER LE DOSSIER DE L'APP (accessible sans permission spéciale)
+        final dir = await getExternalStorageDirectory();
+        _downloadDir = Directory('${dir!.path}/MediaVault');
       } else if (Platform.isWindows) {
         final userProfile = Platform.environment['USERPROFILE'] ?? '';
         _downloadDir = Directory('$userProfile\\Downloads\\MediaVault');
@@ -39,7 +41,9 @@ class DownloadService {
       print('✅ Dossier téléchargement: ${_downloadDir.path}');
     } catch (e) {
       print('❌ Erreur création dossier: $e');
-      _downloadDir = Directory('downloads');
+      // Fallback
+      final docDir = await getApplicationDocumentsDirectory();
+      _downloadDir = Directory('${docDir.path}/MediaVault');
       if (!_downloadDir.existsSync()) {
         _downloadDir.createSync(recursive: true);
       }
@@ -50,7 +54,10 @@ class DownloadService {
     List<MediaFile> files = [];
     
     try {
-      if (!_downloadDir.existsSync()) return files;
+      if (!_downloadDir.existsSync()) {
+        print('⚠️ Dossier inexistant: ${_downloadDir.path}');
+        return files;
+      }
 
       final entities = _downloadDir.listSync();
       print('📁 Scan MediaVault: ${entities.length} éléments');
@@ -152,6 +159,7 @@ class DownloadService {
       final filePath = '${_downloadDir.path}${Platform.pathSeparator}$fileName';
       
       print('📁 Fichier: $fileName');
+      print('📁 Chemin complet: $filePath');
       
       final stream = yt.videos.streamsClient.get(bestStream);
       final file = File(filePath);
@@ -171,7 +179,7 @@ class DownloadService {
         final progressPercent = (progress * 100).toInt();
         
         if (progressPercent - lastProgressUpdate >= 5 || progressPercent == 100) {
-          print('📥 Progress: $progressPercent%');
+          print(' Progress: $progressPercent%');
           lastProgressUpdate = progressPercent;
         }
         
@@ -181,7 +189,6 @@ class DownloadService {
       await fileStream.flush();
       await fileStream.close();
       
-      // ✅ ATTENDRE QUE LE FICHIER SOIT VRAIMENT ÉCRIT
       await Future.delayed(const Duration(seconds: 2));
       
       if (!file.existsSync()) {
