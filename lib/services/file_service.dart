@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:just_audio/just_audio.dart';
 import '../models/media_file.dart';
 
 class FileService {
@@ -43,13 +42,13 @@ class FileService {
         print('✅ Cache trouvé: ${cachedData.length} fichiers');
         return cachedData.map((data) {
           return MediaFile.fromLocal(
-            id: data['id'],
-            title: data['title'],
-            artist: data['artist'],
-            album: data['album'],
-            path: data['path'],
+            id: data['id'] ?? '',
+            title: data['title'] ?? '',
+            artist: data['artist'] ?? 'Inconnu',
+            album: data['album'] ?? 'Album inconnu',
+            path: data['path'] ?? '',
             duration: Duration(milliseconds: data['duration_ms'] ?? 0),
-            format: data['format'],
+            format: data['format'] ?? '',
             isVideo: data['is_video'] ?? false,
           );
         }).toList();
@@ -96,20 +95,6 @@ class FileService {
     }
   }
 
-  Future<Duration> _getAudioDuration(String filePath) async {
-    try {
-      final player = AudioPlayer();
-      final duration = await player.setFilePath(filePath)
-          .timeout(const Duration(seconds: 2), onTimeout: () => null);
-      
-      final result = player.duration ?? Duration.zero;
-      await player.dispose();
-      return result;
-    } catch (e) {
-      return Duration.zero;
-    }
-  }
-
   bool _isExcluded(String path) {
     final lowerPath = path.toLowerCase();
     for (var excluded in excludedDirs) {
@@ -122,7 +107,7 @@ class FileService {
 
   // ✅ SCAN COMPLET AVEC CACHE
   Future<List<MediaFile>> scanAllFiles({bool forceRescan = false}) async {
-    // ✅ Si pas de rescan forcé, charger depuis le cache
+    // Si pas de rescan forcé, charger depuis le cache
     if (!forceRescan) {
       final cached = await loadFromCache();
       if (cached.isNotEmpty) {
@@ -167,7 +152,6 @@ class FileService {
     
     print('✅ ${uniqueFiles.length} fichiers trouvés');
     
-    // ✅ Sauvegarder dans le cache
     await saveToCache(uniqueFiles.values.toList());
     
     return uniqueFiles.values.toList();
@@ -177,7 +161,6 @@ class FileService {
     List<MediaFile> files = [];
     
     if (depth > maxDepth) return files;
-    
     if (_isExcluded(dir.path)) return files;
     
     try {
@@ -228,15 +211,13 @@ class FileService {
             title = title.replaceAll(RegExp(r'^\d+\s*[-\.]?\s*'), '').trim();
             if (title.isEmpty) title = fileName;
             
-            Duration duration = Duration.zero;
-            
             files.add(MediaFile.fromLocal(
               id: path.hashCode.toString(),
               title: title,
               artist: artist,
               album: 'Album inconnu',
               path: path,
-              duration: duration,
+              duration: Duration.zero,
               format: extension,
               isVideo: isVideo,
             ));
@@ -244,7 +225,7 @@ class FileService {
         }
       }
     } catch (e) {
-      print('⚠️ Impossible de scanner: ${dir.path}');
+      // Ignorer les erreurs
     }
     
     return files;

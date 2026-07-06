@@ -63,15 +63,15 @@ class _DownloadedScreenState extends State<DownloadedScreen> with TickerProvider
     _listAnimationController.forward(from: 0);
   }
 
-  // ✅ CORRECTION LECTURE VIDÉO vs AUDIO
-  void _playFile(MediaFile file) {
-    print('🎵 Lecture: ${file.title} | isVideo: ${file.isVideo} | format: ${file.format}');
+  // ✅ CORRECTION LECTURE VIDÉO vs AUDI
+    void _playFile(MediaFile file) {
+    print(' Lecture: ${file.title} | isVideo: ${file.isVideo} | format: ${file.format}');
     
     int index = _filteredFiles.indexOf(file);
     if (index != -1) {
-      // ✅ DÉTECTION VIDÉO
-      if (file.isVideo || ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v'].contains(file.format.toLowerCase())) {
-        print('🎬 Ouverture VideoPlayerScreen');
+      // ✅ VIDÉO : Ouvrir le lecteur vidéo
+      if (file.isVideo) {
+        print(' Ouverture VideoPlayerScreen');
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -82,7 +82,7 @@ class _DownloadedScreenState extends State<DownloadedScreen> with TickerProvider
           ),
         );
       } else {
-        // ✅ AUDIO
+        // ✅ AUDIO : Ouvrir le lecteur audio (même si c'est du MP4)
         print('🎵 Ouverture lecteur audio');
         widget.audioService.setPlaylist(_filteredFiles, index);
         Future.delayed(const Duration(milliseconds: 300), () {
