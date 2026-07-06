@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'download_service.dart';
-import 'file_service.dart';
 
 class DownloadTask {
   final String videoId;
@@ -32,7 +31,7 @@ class DownloadManager extends ChangeNotifier {
   final List<DownloadTask> _downloads = [];
   final int _maxConcurrentDownloads = 3;
   int _activeDownloads = 0;
-  bool _isProcessing = false; // ✅ AJOUTER CE FLAG
+  bool _isProcessing = false;
   
   List<DownloadTask> get downloads => List.unmodifiable(_downloads);
   
@@ -64,33 +63,28 @@ class DownloadManager extends ChangeNotifier {
     _downloads.add(task);
     notifyListeners();
     
-    // ✅ LANCER LE TRAITEMENT DE LA FILE
     _processQueue();
     
     return task.videoId;
   }
 
-  // ✅ CORRIGÉ : ÉVITER LA RÉCURSION
   Future<void> _processQueue() async {
-    if (_isProcessing) return; // ✅ SI DÉJÀ EN COURS, SORTIR
+    if (_isProcessing) return;
     if (_activeDownloads >= _maxConcurrentDownloads) return;
     
     final queued = _downloads.where((d) => d.status == DownloadStatus.queued).toList();
     if (queued.isEmpty) return;
     
-    _isProcessing = true; // ✅ MARQUER COMME EN COURS
+    _isProcessing = true;
     
     for (var task in queued) {
       if (_activeDownloads >= _maxConcurrentDownloads) break;
-      
-      // ✅ LANCER SANS ATTENDRE (fire and forget)
       _startDownload(task);
     }
     
-    _isProcessing = false; // ✅ MARQUER COMME TERMINÉ
+    _isProcessing = false;
   }
 
-  // ✅ CORRIGÉ : NE PLUS APPELER _processQueue DANS FINALLY
   Future<void> _startDownload(DownloadTask task) async {
     _activeDownloads++;
     task.status = DownloadStatus.downloading;
@@ -110,37 +104,23 @@ class DownloadManager extends ChangeNotifier {
         task.filePath = filePath;
         task.status = DownloadStatus.completed;
         task.progress = 1.0;
-        
-        print('🔄 Mise à jour du cache après téléchargement...');
-        await _forceCacheUpdate();
-        
-        print('✅ Téléchargement terminé: $filePath');
+        print('✅ TÉLÉCHARGEMENT TERMINÉ: ${task.title}');
       } else {
         task.status = DownloadStatus.failed;
         task.error = 'Échec du téléchargement';
+        print('❌ ÉCHEC TÉLÉCHARGEMENT: ${task.title}');
       }
     } catch (e) {
       task.status = DownloadStatus.failed;
       task.error = e.toString();
+      print('❌ ERREUR: $e');
     } finally {
       _activeDownloads--;
       notifyListeners();
       
-      // ✅ RELANCER LE TRAITEMENT DE LA FILE (MAIS PAS DE RÉCURSION)
       Future.delayed(const Duration(milliseconds: 100), () {
         _processQueue();
       });
-    }
-  }
-
-  Future<void> _forceCacheUpdate() async {
-    try {
-      final fileService = FileService();
-      await fileService.clearCache();
-      await fileService.scanAllFiles(forceRescan: true);
-      print('✅ Cache mis à jour');
-    } catch (e) {
-      print('⚠️ Erreur mise à jour cache: $e');
     }
   }
 

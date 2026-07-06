@@ -26,7 +26,8 @@ class DownloadService {
       if (Platform.isAndroid) {
         _downloadDir = Directory('/storage/emulated/0/Music/MediaVault');
       } else if (Platform.isWindows) {
-        _downloadDir = Directory('downloads');
+        final userProfile = Platform.environment['USERPROFILE'] ?? '';
+        _downloadDir = Directory('$userProfile\\Downloads\\MediaVault');
       } else {
         final docDir = await getApplicationDocumentsDirectory();
         _downloadDir = Directory('${docDir.path}/MediaVault');
@@ -35,7 +36,9 @@ class DownloadService {
       if (!_downloadDir.existsSync()) {
         _downloadDir.createSync(recursive: true);
       }
+      print('✅ Dossier téléchargement: ${_downloadDir.path}');
     } catch (e) {
+      print('❌ Erreur création dossier: $e');
       _downloadDir = Directory('downloads');
       if (!_downloadDir.existsSync()) {
         _downloadDir.createSync(recursive: true);
@@ -47,10 +50,7 @@ class DownloadService {
     List<MediaFile> files = [];
     
     try {
-      if (!_downloadDir.existsSync()) {
-        print('⚠️ Dossier inexistant: ${_downloadDir.path}');
-        return files;
-      }
+      if (!_downloadDir.existsSync()) return files;
 
       final entities = _downloadDir.listSync();
       print('📁 Scan MediaVault: ${entities.length} éléments');
@@ -75,13 +75,8 @@ class DownloadService {
               String artist = 'Artiste inconnu';
               
               bool isVideo = videoExtensions.contains(extension);
-              
-              if (extension == 'mp4') {
-                if (fileName.contains('_Audio')) {
-                  isVideo = false;
-                } else {
-                  isVideo = true;
-                }
+              if (extension == 'mp4' && fileName.contains('_Audio')) {
+                isVideo = false;
               }
               
               title = title.replaceAll('_Audio', '').replaceAll('_Video', '');
@@ -90,8 +85,7 @@ class DownloadService {
                 final firstDashIndex = title.indexOf(' - ');
                 artist = title.substring(0, firstDashIndex).trim();
                 title = title.substring(firstDashIndex + 3).trim();
-              } 
-              else if (title.contains('_')) {
+              } else if (title.contains('_')) {
                 final parts = title.split('_');
                 if (parts.length >= 2) {
                   artist = parts[0].trim();
@@ -122,7 +116,7 @@ class DownloadService {
         }
       }
       
-      print('✅ ${files.length} fichiers téléchargés trouvés');
+      print('✅ ${files.length} fichiers téléchargés');
     } catch (e) {
       print('❌ Erreur scan: $e');
     }
@@ -135,53 +129,14 @@ class DownloadService {
     required bool isAudioOnly,
     required void Function(double progress) onProgress,
   }) async {
-    for (int attempt = 1; attempt <= 3; attempt++) {
-      try {
-        print('🎬 Tentative $attempt/3: $videoId');
-        
-        final result = await _downloadInternal(
-          videoId: videoId,
-          isAudioOnly: isAudioOnly,
-          onProgress: onProgress,
-        ).timeout(
-          const Duration(minutes: 10),
-          onTimeout: () {
-            print('❌ TIMEOUT global (10 min)');
-            return null;
-          },
-        );
-        
-        if (result != null) {
-          print('✅ Téléchargement réussi !');
-          return result;
-        }
-        
-        print('⚠️ Échec tentative $attempt, réessai...');
-        await Future.delayed(const Duration(seconds: 3));
-        
-      } catch (e) {
-        print('❌ Erreur tentative $attempt: $e');
-        if (attempt == 3) return null;
-        await Future.delayed(const Duration(seconds: 3));
-      }
-    }
-    
-    return null;
-  }
+    try {
+      print('🎬 DÉBUT TÉLÉCHARGEMENT: $videoId');
+      
+      final video = await yt.videos.get(videoId);
+      final title = video.title.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
+      print('📹 Titre: $title');
 
-  Future<String?> _downloadInternal({
-    required String videoId,
-    required bool isAudioOnly,
-    required void Function(double progress) onProgress,
-  }) async {
-    final video = await yt.videos.get(videoId);
-    final title = video.title.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
-    
-    print('📹 Titre: $title');
-
-    final manifest = await yt.videos.streamsClient.getManifest(videoId);
-    
-    if (isAudioOnly) {
+      final manifest = await yt.videos.streamsClient.getManifest(videoId);
       final progressiveStreams = manifest.muxed.toList();
       
       if (progressiveStreams.isEmpty) {
@@ -190,11 +145,13 @@ class DownloadService {
       }
       
       final bestStream = progressiveStreams.last;
+      print('📊 Stream: ${bestStream.qualityLabel}');
       
-      print('🎵 Stream trouvé: ${bestStream.qualityLabel}');
-      
-      final fileName = '${title}_Audio.mp4';
+      final suffix = isAudioOnly ? '_Audio' : '_Video';
+      final fileName = '$title$suffix.mp4';
       final filePath = '${_downloadDir.path}${Platform.pathSeparator}$fileName';
+      
+      print('📁 Fichier: $fileName');
       
       final stream = yt.videos.streamsClient.get(bestStream);
       final file = File(filePath);
@@ -206,41 +163,25 @@ class DownloadService {
       
       print('📊 Taille: ${totalBytes ~/ 1024 ~/ 1024} MB');
       
-      try {
-        // ✅ TIMEOUT PLUS LONG POUR ANDROID (120s au lieu de 60s)
-        await for (final data in stream.timeout(const Duration(seconds: 120))) {
-          fileStream.add(data);
-          downloadedBytes += data.length;
-          
-          // ✅ CLAMPER LE PROGRESS À 1.0 MAX
-          final progress = (downloadedBytes / totalBytes).clamp(0.0, 1.0);
-          final progressPercent = (progress * 100).toInt();
-          
-          if (progressPercent - lastProgressUpdate >= 5 || progressPercent == 100) {
-            print('📥 Progress: $progressPercent%');
-            lastProgressUpdate = progressPercent;
-          }
-          
-          onProgress(progress);
+      await for (final data in stream.timeout(const Duration(seconds: 120))) {
+        fileStream.add(data);
+        downloadedBytes += data.length;
+        
+        final progress = (downloadedBytes / totalBytes).clamp(0.0, 1.0);
+        final progressPercent = (progress * 100).toInt();
+        
+        if (progressPercent - lastProgressUpdate >= 5 || progressPercent == 100) {
+          print('📥 Progress: $progressPercent%');
+          lastProgressUpdate = progressPercent;
         }
-      } catch (e) {
-        print('❌ Erreur stream: $e');
-        await fileStream.close();
-        if (file.existsSync()) {
-          await file.delete();
-        }
-        return null;
+        
+        onProgress(progress);
       }
       
-      // ✅ FLUSH ET CLOSE AVEC GESTION D'ERREUR
-      try {
-        await fileStream.flush();
-        await fileStream.close();
-      } catch (e) {
-        print('⚠️ Erreur flush/close: $e');
-      }
+      await fileStream.flush();
+      await fileStream.close();
       
-      // ✅ DÉLAI PLUS LONG POUR ANDROID (2s au lieu de 500ms)
+      // ✅ ATTENDRE QUE LE FICHIER SOIT VRAIMENT ÉCRIT
       await Future.delayed(const Duration(seconds: 2));
       
       if (!file.existsSync()) {
@@ -248,98 +189,21 @@ class DownloadService {
         return null;
       }
       
-      try {
-        final finalSize = await file.length();
-        print('📊 Taille finale: ${finalSize ~/ 1024} KB');
-        
-        if (finalSize <= 0) {
-          print('❌ Fichier vide');
-          await file.delete();
-          return null;
-        }
-      } catch (e) {
-        print('⚠️ Erreur lecture taille: $e');
+      final finalSize = await file.length();
+      print('📊 Taille finale: ${finalSize ~/ 1024 ~/ 1024} MB');
+      
+      if (finalSize <= 0) {
+        print('❌ Fichier vide');
+        await file.delete();
         return null;
       }
       
-      print('✅ Audio terminé: $filePath');
+      print('✅ TÉLÉCHARGEMENT TERMINÉ: $filePath');
       return filePath;
       
-    } else {
-      final progressiveStreams = manifest.muxed.toList();
-      
-      if (progressiveStreams.isEmpty) {
-        print('❌ Aucun stream vidéo trouvé');
-        return null;
-      }
-      
-      final bestStream = progressiveStreams.last;
-      
-      print('🎬 Stream vidéo: ${bestStream.qualityLabel}');
-      
-      final fileName = '${title}_Video.mp4';
-      final filePath = '${_downloadDir.path}${Platform.pathSeparator}$fileName';
-      
-      final stream = yt.videos.streamsClient.get(bestStream);
-      final file = File(filePath);
-      final fileStream = file.openWrite();
-      
-      int totalBytes = bestStream.size.totalBytes;
-      int downloadedBytes = 0;
-      int lastProgressUpdate = 0;
-      
-      try {
-        await for (final data in stream.timeout(const Duration(seconds: 120))) {
-          fileStream.add(data);
-          downloadedBytes += data.length;
-          
-          final progress = (downloadedBytes / totalBytes).clamp(0.0, 1.0);
-          final progressPercent = (progress * 100).toInt();
-          
-          if (progressPercent - lastProgressUpdate >= 5 || progressPercent == 100) {
-            print('📥 Progress: $progressPercent%');
-            lastProgressUpdate = progressPercent;
-          }
-          
-          onProgress(progress);
-        }
-      } catch (e) {
-        print('❌ Erreur stream: $e');
-        await fileStream.close();
-        if (file.existsSync()) {
-          await file.delete();
-        }
-        return null;
-      }
-      
-      try {
-        await fileStream.flush();
-        await fileStream.close();
-      } catch (e) {
-        print('⚠️ Erreur flush/close: $e');
-      }
-      
-      await Future.delayed(const Duration(seconds: 2));
-      
-      if (!file.existsSync()) {
-        print('❌ Fichier non créé');
-        return null;
-      }
-      
-      try {
-        final finalSize = await file.length();
-        
-        if (finalSize <= 0) {
-          await file.delete();
-          return null;
-        }
-      } catch (e) {
-        print('⚠️ Erreur lecture taille: $e');
-        return null;
-      }
-      
-      print('✅ Vidéo terminée: $filePath');
-      return filePath;
+    } catch (e) {
+      print('❌ ERREUR TÉLÉCHARGEMENT: $e');
+      return null;
     }
   }
 

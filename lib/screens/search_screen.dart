@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/youtube_service.dart';
-import '../services/download_manager.dart'; // ✅ NOUVEAU
+import '../services/download_manager.dart';
 import '../services/connectivity_service.dart';
 import '../services/settings_service.dart';
 import '../services/audio_service.dart';
 import '../services/database_service.dart';
 import '../widgets/no_connection_banner.dart';
-import '../widgets/download_progress_widget.dart'; // ✅ NOUVEAU
+import '../widgets/download_progress_widget.dart';
 import '../widgets/player_bar.dart';
 import 'video_player_screen.dart';
 
@@ -33,6 +33,9 @@ class _SearchScreenState extends State<SearchScreen> {
   List<Map<String, dynamic>> _searchResults = [];
   List<String> _searchHistory = [];
   bool _isSearching = false;
+  bool _isLoadingMore = false;  // ✅ NOUVEAU
+  int _currentMaxResults = 30;  // ✅ NOUVEAU
+  String _lastQuery = '';       // ✅ NOUVEAU
 
   // ✅ Catégories colorées
   final List<Map<String, dynamic>> _categories = [
@@ -74,7 +77,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _loadSearchHistory();
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+            ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Row(
             children: [
@@ -114,15 +117,50 @@ class _SearchScreenState extends State<SearchScreen> {
 
     setState(() {
       _isSearching = true;
+      _currentMaxResults = 30;  // ✅ RÉINITIALISER
+      _lastQuery = query;       // ✅ SAUVEGARDER LA REQUÊTE
     });
 
-    _searchResults = await _youtubeService.search(query);
+    _searchResults = await _youtubeService.search(query, maxResults: 30);
 
     final db = Provider.of<DatabaseService>(context, listen: false);
     db.addSearchQuery(query);
     _loadSearchHistory();
 
     setState(() => _isSearching = false);
+  }
+
+  // ✅ CHARGER PLUS DE RÉSULTATS
+  Future<void> _loadMoreResults() async {
+    if (_isLoadingMore || _lastQuery.isEmpty) return;
+    
+    setState(() => _isLoadingMore = true);
+    
+    final newMaxResults = _currentMaxResults + 30;
+    
+    if (newMaxResults > 200) {
+      setState(() => _isLoadingMore = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+         SnackBar(
+          content: Text('Maximum de résultats atteint (200)'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      return;
+    }
+    
+    print('📥 Chargement de plus de résultats...');
+    final moreResults = await _youtubeService.search(_lastQuery, maxResults: newMaxResults);
+    
+    setState(() {
+      _searchResults = moreResults;
+      _currentMaxResults = newMaxResults;
+      _isLoadingMore = false;
+    });
+    
+    print('✅ ${_searchResults.length} résultats au total');
   }
 
   Future<void> _playVideo(String videoId, String title, String author) async {
@@ -182,7 +220,6 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  // ✅ NOUVELLE MÉTHODE : Ajouter au DownloadManager
   void _addToDownloadQueue(String videoId, String title, bool isAudioOnly) {
     final downloadManager = Provider.of<DownloadManager>(context, listen: false);
     
@@ -283,7 +320,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
               onTap: () {
                 Navigator.pop(context);
-                _addToDownloadQueue(videoId, title, true); // ✅ NOUVELLE MÉTHODE
+                _addToDownloadQueue(videoId, title, true);
               },
             ),
             ListTile(
@@ -309,7 +346,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
               onTap: () {
                 Navigator.pop(context);
-                _addToDownloadQueue(videoId, title, false); // ✅ NOUVELLE MÉTHODE
+                _addToDownloadQueue(videoId, title, false);
               },
             ),
             const SizedBox(height: 20),
@@ -341,7 +378,6 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
           body: Column(
             children: [
-              // Bannière pas de connexion
               StreamBuilder<bool>(
                 stream: widget.connectivityService.connectionStream,
                 initialData: widget.connectivityService.isConnected,
@@ -359,7 +395,6 @@ class _SearchScreenState extends State<SearchScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // 🔍 GRANDE BARRE DE RECHERCHE
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                         child: TextField(
@@ -375,7 +410,10 @@ class _SearchScreenState extends State<SearchScreen> {
                                     icon: Icon(Icons.clear, color: isDark ? Colors.grey[400] : Colors.grey[600]),
                                     onPressed: () {
                                       _searchController.clear();
-                                      setState(() => _searchResults = []);
+                                      setState(() {
+                                        _searchResults = [];
+                                        _lastQuery = '';
+                                      });
                                     },
                                   )
                                 : null,
@@ -391,10 +429,8 @@ class _SearchScreenState extends State<SearchScreen> {
                         ),
                       ),
 
-                      // ✅ WIDGET DE PROGRESSION DES TÉLÉCHARGEMENTS
                       const DownloadProgressWidget(),
 
-                      // 🎨 GRILLE DE CATÉGORIES
                       if (_searchResults.isEmpty && _searchController.text.isEmpty) ...[
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -422,7 +458,6 @@ class _SearchScreenState extends State<SearchScreen> {
                         ),
                         const SizedBox(height: 24),
 
-                        // 🕐 HISTORIQUE
                         if (_searchHistory.isNotEmpty) ...[
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -453,7 +488,6 @@ class _SearchScreenState extends State<SearchScreen> {
                         ],
                       ],
 
-                      // ⏳ RECHERCHE EN COURS
                       if (_isSearching)
                         Padding(
                           padding: const EdgeInsets.all(40),
@@ -478,19 +512,54 @@ class _SearchScreenState extends State<SearchScreen> {
                           ),
                         ),
 
-                      // 🎵 RÉSULTATS
+                      // ✅ RÉSULTATS AVEC BOUTON "CHARGER PLUS"
                       if (!_isSearching && _searchResults.isNotEmpty) ...[
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          child: Text(
-                            '${_searchResults.length} résultat${_searchResults.length > 1 ? 's' : ''}',
-                            style: TextStyle(
-                              color: isDark ? Colors.grey[400] : Colors.grey[600],
-                              fontSize: 14,
-                            ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '${_searchResults.length} résultat${_searchResults.length > 1 ? 's' : ''}',
+                                style: TextStyle(
+                                  color: isDark ? Colors.grey[400] : Colors.grey[600],
+                                  fontSize: 14,
+                                ),
+                              ),
+                              if (_searchResults.length >= 30 && _searchResults.length < 200)
+                                TextButton.icon(
+                                  onPressed: _isLoadingMore ? null : _loadMoreResults,
+                                  icon: _isLoadingMore
+                                      ? SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Theme.of(context).primaryColor,
+                                          ),
+                                        )
+                                      : Icon(Icons.add_circle_outline, size: 18),
+                                  label: Text(
+                                    _isLoadingMore ? 'Chargement...' : 'Charger plus',
+                                    style: TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                         ..._searchResults.map((result) => _buildResultCard(result, isDark)),
+                        
+                        // ✅ INDICATEUR DE CHARGEMENT EN BAS
+                        if (_isLoadingMore)
+                          Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                color: Theme.of(context).primaryColor,
+                              ),
+                            ),
+                          ),
+                        
                         const SizedBox(height: 100),
                       ],
                     ],
@@ -508,7 +577,6 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  // ✅ Carte de catégorie colorée
   Widget _buildCategoryCard(Map<String, dynamic> cat, bool isDark) {
     return Material(
       color: (cat['color'] as Color),
@@ -550,7 +618,6 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  // ✅ Élément d'historique
   Widget _buildHistoryItem(String query, bool isDark) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -580,7 +647,6 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  // ✅ Carte de résultat améliorée
   Widget _buildResultCard(Map<String, dynamic> result, bool isDark) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -601,7 +667,6 @@ class _SearchScreenState extends State<SearchScreen> {
             padding: const EdgeInsets.all(12),
             child: Row(
               children: [
-                // Thumbnail
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: Stack(
@@ -638,7 +703,6 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                // Info
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -666,7 +730,6 @@ class _SearchScreenState extends State<SearchScreen> {
                     ],
                   ),
                 ),
-                // Bouton télécharger
                 Container(
                   margin: const EdgeInsets.only(left: 8),
                   decoration: BoxDecoration(
