@@ -682,7 +682,6 @@ else ...[
                   onSelected: (value) => _handleMenuAction(value, file),
                   itemBuilder: (context) => [
                     _buildMenuItem(Icons.info_outline_rounded, 'Détails', 'details'),
-                    _buildMenuItem(Icons.edit_rounded, 'Renommer', 'rename'),
                     _buildMenuItem(Icons.share_rounded, 'Envoyer', 'share'),
                     _buildMenuItem(Icons.delete_rounded, 'Supprimer', 'delete'),
                     _buildMenuItem(Icons.music_note_rounded, 'Définir comme sonnerie', 'ringtone'),
@@ -768,9 +767,6 @@ else ...[
     switch (action) {
       case 'details':
         _showDetailsDialog(file, settings);
-        break;
-      case 'rename':
-        await _renameFile(file);
         break;
       case 'share':
         await _shareFile(file);
@@ -988,8 +984,8 @@ else ...[
       final xFile = XFile(file.path);
       await Share.shareXFiles(
         [xFile],
-        text: 'Écoute "${file.title}" via MediaVault ',
-        subject: file.title,
+   text: 'Écoute "${file.title}" via BoomMedia ',
+           subject: file.title,
       );
     } catch (e) {
       if (mounted) {

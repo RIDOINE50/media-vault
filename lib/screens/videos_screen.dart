@@ -668,7 +668,6 @@ class _VideosScreenState extends State<VideosScreen> with TickerProviderStateMix
                   onSelected: (value) => _handleMenuAction(value, file),
                   itemBuilder: (context) => [
                     _buildMenuItem(Icons.info_outline_rounded, 'Détails', 'details'),
-                    _buildMenuItem(Icons.edit_rounded, 'Renommer', 'rename'),
                     _buildMenuItem(Icons.share_rounded, 'Envoyer', 'share'),
                     _buildMenuItem(Icons.delete_rounded, 'Supprimer', 'delete'),
                     const PopupMenuDivider(),
@@ -753,9 +752,6 @@ class _VideosScreenState extends State<VideosScreen> with TickerProviderStateMix
     switch (action) {
       case 'details':
         _showDetailsDialog(file, settings);
-        break;
-      case 'rename':
-        await _renameFile(file);
         break;
       case 'share':
         await _shareFile(file);
@@ -931,7 +927,7 @@ class _VideosScreenState extends State<VideosScreen> with TickerProviderStateMix
       final xFile = XFile(file.path);
       await Share.shareXFiles(
         [xFile],
-        text: 'Regarde "${file.title}" via MediaVault ',
+        text: 'Regarde "${file.title}" via BoomMedia ',
         subject: file.title,
       );
     } catch (e) {

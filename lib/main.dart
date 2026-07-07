@@ -117,7 +117,7 @@ class _MediaVaultAppState extends State<MediaVaultApp> {
         final audioService = Provider.of<AudioService>(context, listen: false);
         
         return MaterialApp(
-          title: 'MediaVault',
+          title: 'BoomMedia',
           debugShowCheckedModeBanner: false,
           theme: settings.currentTheme,
           builder: (context, child) => child!,
