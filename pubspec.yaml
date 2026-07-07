@@ -40,7 +40,7 @@ dependencies:
 
   # Permissions
   permission_handler: ^12.0.3
-  video_thumbnail: ^0.5.3
+  flutter_cache_manager: ^4.0.1
   # UI Utilitaires
   cached_network_image: ^3.4.1
   shimmer: ^3.0.0
