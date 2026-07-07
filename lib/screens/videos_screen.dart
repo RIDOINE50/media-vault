@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:video_thumbnail/video_thumbnail.dart'; // ✅ AJOUTER
 import '../models/media_file.dart';
 import '../services/file_service.dart';
 import '../services/audio_service.dart';
@@ -11,8 +12,8 @@ import '../services/settings_service.dart';
 import '../services/database_service.dart';
 import '../widgets/player_bar.dart';
 import 'settings_screen.dart';
-import 'video_player_screen.dart'; // ✅ IMPORTANT POUR OUVRIR LA VIDÉO
-
+import 'video_player_screen.dart';
+import 'package:path_provider/path_provider.dart';
 class VideosScreen extends StatefulWidget {
   final AudioService audioService;
 
@@ -65,7 +66,6 @@ class _VideosScreenState extends State<VideosScreen> with TickerProviderStateMix
     
     final allFiles = await _fileService.scanAllFiles(forceRescan: false);
     
-    // ✅ FILTRER UNIQUEMENT LES VIDÉOS
     _allVideos = allFiles.where((file) => file.isVideo).toList();
     _recentVideos = FileService.sortByRecentDesc(_allVideos).take(10).toList();
     
@@ -110,7 +110,6 @@ class _VideosScreenState extends State<VideosScreen> with TickerProviderStateMix
     _listAnimationController.forward(from: 0);
   }
 
-  // ✅ OUVRIR LE LECTEUR VIDÉO AU LIEU DU LECTEUR AUDIO
   void _playFile(MediaFile file) {
     if (_isSelectionMode) {
       _toggleSelection(file.id);
@@ -272,26 +271,36 @@ class _VideosScreenState extends State<VideosScreen> with TickerProviderStateMix
                   onPressed: _deselectAll,
                   tooltip: 'Annuler',
                 ),
-              ]// Dans actions, remplace par :
-else ...[
-  IconButton(
-    icon: Icon(Icons.checklist_outlined, color: isDark ? Colors.white : Colors.black87),
-    onPressed: _toggleSelectionMode,
-    tooltip: 'Sélection multiple',
-  ),
-  IconButton(
-    icon: Icon(Icons.sort_rounded, color: isDark ? Colors.white : Colors.black87),
-    onPressed: _showSortMenu,
-    tooltip: 'Trier',
-  ),
-  _buildAppBarIcon(Icons.favorite_outline, 'Favoris', () => Navigator.pushNamed(context, '/favorites'), isDark),
-  _buildAppBarIcon(Icons.settings, 'Paramètres', () => Navigator.push(
-    context,
-    MaterialPageRoute(builder: (context) => const SettingsScreen()),
-  ), isDark),
-  // ✅ Déplacé à la fin
-  _buildAppBarIcon(Icons.queue_music, 'Playlists', () => Navigator.pushNamed(context, '/playlists'), isDark),
-],
+              ] else ...[
+                IconButton(
+                  icon: Icon(Icons.checklist_outlined, color: isDark ? Colors.white : Colors.black87),
+                  onPressed: _toggleSelectionMode,
+                  tooltip: 'Sélection multiple',
+                ),
+                IconButton(
+                  icon: Icon(Icons.sort_rounded, color: isDark ? Colors.white : Colors.black87),
+                  onPressed: _showSortMenu,
+                  tooltip: 'Trier',
+                ),
+                IconButton(
+                  icon: Icon(Icons.favorite_outline, color: isDark ? Colors.white : Colors.black87),
+                  onPressed: () => Navigator.pushNamed(context, '/favorites'),
+                  tooltip: 'Favoris',
+                ),
+                IconButton(
+                  icon: Icon(Icons.settings, color: isDark ? Colors.white : Colors.black87),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                  ),
+                  tooltip: 'Paramètres',
+                ),
+                IconButton(
+                  icon: Icon(Icons.queue_music, color: isDark ? Colors.white : Colors.black87),
+                  onPressed: () => Navigator.pushNamed(context, '/playlists'),
+                  tooltip: 'Playlists',
+                ),
+              ],
             ],
           ),
           body: _isLoading
@@ -485,6 +494,7 @@ else ...[
     );
   }
 
+  // ✅ MÉTHODE CORRIGÉE AVEC MINIATURES
   Widget _buildMediaCard(MediaFile file, bool isDark, Color primaryColor) {
     return GestureDetector(
       onTap: () => _playFile(file),
@@ -493,59 +503,75 @@ else ...[
         margin: const EdgeInsets.symmetric(horizontal: 6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
           children: [
-            Hero(
-              tag: 'video_${file.id}',
-              child: Container(
-                width: 160,
-                height: 160,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Colors.blue.withOpacity(0.3), Colors.blue.withOpacity(0.1)],
-                  ),
+            // ✅ STACK POUR MINIATURE + BOUTON + DURÉE
+            Stack(
+              children: [
+                // Miniature vidéo
+                ClipRRect(
                   borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.blue.withOpacity(0.2),
-                      blurRadius: 12,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: Stack(
-                  children: [
-                    Center(
-                      child: Icon(
-                        Icons.movie_rounded,
-                        size: 48,
-                        color: Colors.blue,
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 10,
-                      right: 10,
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
+                  child: FutureBuilder<String?>(
+                    future: _generateThumbnail(file.path),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasData && snapshot.data != null) {
+                        return Image.file(
+                          File(snapshot.data!),
+                          width: 160,
+                          height: 160,
+                          fit: BoxFit.cover,
+                        );
+                      }
+                      return Container(
+                        width: 160,
+                        height: 160,
                         decoration: BoxDecoration(
-                          color: Colors.blue,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.blue.withOpacity(0.4),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
+                          gradient: LinearGradient(
+                            colors: [Colors.blue.withOpacity(0.4), Colors.blue.withOpacity(0.2)],
+                          ),
                         ),
-                        child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
+                        child: const Icon(Icons.movie_rounded, color: Colors.white, size: 48),
+                      );
+                    },
+                  ),
+                ),
+                // Bouton play
+                Positioned(
+                  bottom: 10,
+                  right: 10,
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: primaryColor,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: primaryColor.withOpacity(0.4),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
+                  ),
+                ),
+                // Durée
+                if (file.duration != Duration.zero)
+                  Positioned(
+                    bottom: 10,
+                    left: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        _formatDuration(file.duration),
+                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                       ),
                     ),
-                  ],
-                ),
-              ),
+                  ),
+              ],
             ),
             const SizedBox(height: 12),
             Text(
@@ -572,6 +598,32 @@ else ...[
         ),
       ),
     );
+  }
+
+  // ✅ GÉNÉRER UNE MINIATURE
+  Future<String?> _generateThumbnail(String videoPath) async {
+    try {
+      final thumbnail = await VideoThumbnail.thumbnailFile(
+        video: videoPath,
+        thumbnailPath: (await getTemporaryDirectory()).path,
+        imageFormat: ImageFormat.JPEG,
+        maxHeight: 200,
+        maxWidth: 200,
+        quality: 75,
+      );
+      return thumbnail;
+    } catch (e) {
+      print('⚠️ Erreur thumbnail: $e');
+      return null;
+    }
+  }
+
+  // ✅ FORMATAGE DE LA DURÉE
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+    return '$minutes:$seconds';
   }
 
   Widget _buildAnimatedListTile(MediaFile file, bool isDark, Color primaryColor, int index) {
@@ -631,21 +683,31 @@ else ...[
                 ),
                 const SizedBox(width: 12),
               ],
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Colors.blue.withOpacity(0.3), Colors.blue.withOpacity(0.1)],
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.movie_rounded,
-                  color: Colors.blue,
-                  size: 28,
+              // ✅ MINIATURE OU ICÔNE
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: FutureBuilder<String?>(
+                  future: _generateThumbnail(file.path),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasData && snapshot.data != null) {
+                      return Image.file(
+                        File(snapshot.data!),
+                        width: 56,
+                        height: 56,
+                        fit: BoxFit.cover,
+                      );
+                    }
+                    return Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.blue.withOpacity(0.3), Colors.blue.withOpacity(0.1)],
+                        ),
+                      ),
+                      child: const Icon(Icons.movie_rounded, color: Colors.blue, size: 28),
+                    );
+                  },
                 ),
               ),
               const SizedBox(width: 14),
@@ -724,7 +786,8 @@ else ...[
       child: Center(
         child: Column(
           children: [
-Icon(Icons.videocam_off, size: 64, color: isDark ? Colors.grey[700] : Colors.grey[400]),            const SizedBox(height: 16),
+            Icon(Icons.videocam_off, size: 64, color: isDark ? Colors.grey[700] : Colors.grey[400]),
+            const SizedBox(height: 16),
             Text(
               'Aucune vidéo trouvée',
               style: TextStyle(

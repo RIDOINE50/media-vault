@@ -2,12 +2,13 @@ class MediaFile {
   final String id;
   final String title;
   final String artist;
-  final String album; // ← NOUVEAU CHAMP
+  final String album;
   final String path;
   final Duration duration;
   final String format;
   final bool isVideo;
-  final String? thumbnailUrl;
+  final String? thumbnailUrl;        // ✅ Pour les URLs (YouTube, etc.)
+  final String? thumbnailPath;       // ✅ NOUVEAU : Pour les fichiers locaux
   final int? albumId;
   final DateTime? downloadDate;
   final bool isFromYouTube;
@@ -16,12 +17,13 @@ class MediaFile {
     required this.id,
     required this.title,
     required this.artist,
-    this.album = 'Album inconnu', // ← Valeur par défaut
+    this.album = 'Album inconnu',
     required this.path,
     required this.duration,
     required this.format,
     required this.isVideo,
     this.thumbnailUrl,
+    this.thumbnailPath,              // ✅ NOUVEAU
     this.albumId,
     this.downloadDate,
     this.isFromYouTube = false,
@@ -44,6 +46,7 @@ class MediaFile {
     required String format,
     required bool isVideo,
     String? thumbnailUrl,
+    String? thumbnailPath,           // ✅ NOUVEAU
     int? albumId,
   }) {
     return MediaFile(
@@ -56,6 +59,7 @@ class MediaFile {
       format: format,
       isVideo: isVideo,
       thumbnailUrl: thumbnailUrl,
+      thumbnailPath: thumbnailPath,  // ✅ NOUVEAU
       albumId: albumId,
     );
   }
@@ -71,6 +75,7 @@ class MediaFile {
     required String format,
     required bool isVideo,
     String? thumbnailUrl,
+    String? thumbnailPath,           // ✅ NOUVEAU
     DateTime? downloadDate,
   }) {
     return MediaFile(
@@ -83,6 +88,7 @@ class MediaFile {
       format: format,
       isVideo: isVideo,
       thumbnailUrl: thumbnailUrl,
+      thumbnailPath: thumbnailPath,  // ✅ NOUVEAU
       downloadDate: downloadDate,
       isFromYouTube: true,
     );
@@ -99,6 +105,7 @@ class MediaFile {
     String? format,
     bool? isVideo,
     String? thumbnailUrl,
+    String? thumbnailPath,           // ✅ NOUVEAU
     int? albumId,
     DateTime? downloadDate,
     bool? isFromYouTube,
@@ -113,9 +120,16 @@ class MediaFile {
       format: format ?? this.format,
       isVideo: isVideo ?? this.isVideo,
       thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
+      thumbnailPath: thumbnailPath ?? this.thumbnailPath,  // ✅ NOUVEAU
       albumId: albumId ?? this.albumId,
       downloadDate: downloadDate ?? this.downloadDate,
       isFromYouTube: isFromYouTube ?? this.isFromYouTube,
     );
   }
+
+  // ✅ Méthode pour obtenir la miniature (URL ou chemin local)
+  String? get thumbnail => thumbnailPath ?? thumbnailUrl;
+  
+  // ✅ Vérifier si une miniature existe
+  bool get hasThumbnail => thumbnailPath != null || thumbnailUrl != null;
 }
