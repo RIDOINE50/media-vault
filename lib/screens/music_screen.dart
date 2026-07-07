@@ -837,7 +837,7 @@ else ...[
     );
   }
 
-  Future<void> _renameFile(MediaFile file) async {
+   Future<void> _renameFile(MediaFile file) async {
     final controller = TextEditingController(text: file.title);
     final settings = Provider.of<SettingsService>(context, listen: false);
     
@@ -846,7 +846,13 @@ else ...[
       builder: (context) => AlertDialog(
         backgroundColor: settings.darkMode ? const Color(0xFF1E1E1E) : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('Renommer', style: TextStyle(color: settings.darkMode ? Colors.white : Colors.black87, fontWeight: FontWeight.bold)),
+        title: Text(
+          'Renommer',
+          style: TextStyle(
+            color: settings.darkMode ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         content: TextField(
           controller: controller,
           autofocus: true,
@@ -855,7 +861,10 @@ else ...[
             hintText: 'Nouveau nom',
             filled: true,
             fillColor: settings.darkMode ? const Color(0xFF2A2A2A) : Colors.grey[100],
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
           ),
         ),
         actions: [
@@ -864,8 +873,14 @@ else ...[
             child: const Text('Annuler'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            style: ElevatedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                Navigator.pop(context, controller.text.trim());
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
             child: const Text('Renommer'),
           ),
         ],
@@ -875,61 +890,85 @@ else ...[
     if (newName != null && newName.isNotEmpty && newName != file.title) {
       try {
         final oldFile = File(file.path);
-        if (oldFile.existsSync()) {
-          final directory = oldFile.parent.path;
-          final extension = file.format;
-          final newPath = '$directory/$newName.$extension';
-          
-          if (File(newPath).existsSync()) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text('Un fichier avec ce nom existe déjà'),
-                backgroundColor: Colors.red,
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            );
-            return;
-          }
-          
-          await oldFile.rename(newPath);
-          
-          setState(() {
-            final index = _allMusic.indexWhere((f) => f.id == file.id);
-            if (index != -1) {
-              _allMusic[index] = MediaFile(
-                id: file.id,
-                title: newName,
-                artist: file.artist,
-                album: file.album,
-                path: newPath,
-                duration: file.duration,
-                format: file.format,
-                isVideo: file.isVideo,
-                downloadDate: file.downloadDate,
-                isFromYouTube: file.isFromYouTube,
-                thumbnailUrl: file.thumbnailUrl,
-              );
-            }
-            _applyFilter();
-          });
-          
+        
+        // ✅ VÉRIFIER SI LE FICHIER EXISTE
+        if (!await oldFile.exists()) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.check_circle, color: Colors.white, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text('Renommé en "$newName"')),
-                ],
-              ),
-              backgroundColor: Colors.green,
+              content: const Text('Fichier introuvable'),
+              backgroundColor: Colors.red,
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
           );
+          return;
         }
+        
+        final directory = oldFile.parent;
+        final extension = file.format;
+        final newPath = '${directory.path}${Platform.pathSeparator}$newName.$extension';
+        
+        final newFile = File(newPath);
+        
+        // ✅ VÉRIFIER SI LE NOUVEAU NOM EXISTE DÉJÀ
+        if (await newFile.exists()) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Un fichier avec ce nom existe déjà'),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+          return;
+        }
+        
+        print(' Renommage de: ${file.path}');
+        print('📝 Vers: $newPath');
+        
+        // ✅ MÉTHODE COMPATIBLE ANDROID 11+ : COPIER PUIS SUPPRIMER
+        await oldFile.copy(newPath);
+        await oldFile.delete();
+        
+        print('✅ Fichier renommé avec succès');
+        
+        // ✅ METTRE À JOUR LA LISTE
+        setState(() {
+          final index = _allMusic.indexWhere((f) => f.id == file.id);
+          if (index != -1) {
+            _allMusic[index] = MediaFile(
+              id: newPath.hashCode.toString(),
+              title: newName,
+              artist: file.artist,
+              album: file.album,
+              path: newPath,
+              duration: file.duration,
+              format: file.format,
+              isVideo: file.isVideo,
+              downloadDate: file.downloadDate,
+              isFromYouTube: file.isFromYouTube,
+              thumbnailUrl: file.thumbnailUrl,
+            );
+          }
+          _applyFilter();
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Renommé en "$newName"')),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
       } catch (e) {
+        print('❌ Erreur renommage: $e');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -967,57 +1006,61 @@ else ...[
   }
 
   Future<void> _deleteFile(MediaFile file, DatabaseService db) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Supprimer', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: Text('Voulez-vous vraiment supprimer "${file.title}" ?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            child: const Text('Supprimer'),
-          ),
-        ],
-      ),
-    );
-    
-    if (confirmed == true) {
-      try {
-        final fileToDelete = File(file.path);
-        if (fileToDelete.existsSync()) {
-          await fileToDelete.delete();
-        }
-      } catch (e) {
-        print('⚠️ Erreur suppression fichier: $e');
-      }
-      
-      await db.removeFavorite(file.id);
-      setState(() {
-        _allMusic.removeWhere((f) => f.id == file.id);
-        _applyFilter();
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('"${file.title}" supprimé'),
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Text('Supprimer', style: TextStyle(fontWeight: FontWeight.bold)),
+      content: Text('Voulez-vous vraiment supprimer "${file.title}" ?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Annuler'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, true),
+          style: ElevatedButton.styleFrom(
             backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
-        );
+          child: const Text('Supprimer'),
+        ),
+      ],
+    ),
+  );
+  
+  if (confirmed == true) {
+    try {
+      final fileToDelete = File(file.path);
+      // ✅ VÉRIFIER SI LE FICHIER EXISTE AVANT DE SUPPRIMER
+      if (await fileToDelete.exists()) {
+        await fileToDelete.delete();
+        print('✅ Fichier supprimé: ${file.path}');
+      } else {
+        print('⚠️ Fichier déjà supprimé ou inexistant: ${file.path}');
       }
+    } catch (e) {
+      print('⚠️ Erreur suppression fichier: $e');
+    }
+    
+    await db.removeFavorite(file.id);
+    setState(() {
+      _allMusic.removeWhere((f) => f.id == file.id);
+      _applyFilter();
+    });
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('"${file.title}" supprimé'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
     }
   }
+}
 
   Future<void> _setAsRingtone(MediaFile file) async {
     try {

@@ -1,16 +1,29 @@
 import 'dart:io';
 import '../models/media_file.dart';
-
+import 'package:path_provider/path_provider.dart';
 class FileService {
   static const List<String> audioExtensions = [
-    'mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma', 'opus', 
-    'amr', 'aiff', 'alac', 'm4b', 'ape', 'mid', 'midi', 'mka'
-  ];
+  // ✅ Formats courants
+  'mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma', 'opus', 
+  'amr', 'aiff', 'alac', 'm4b', 'ape', 'mid', 'midi', 'mka',
+  // ✅ Formats moins courants mais importants
+  'ac3', 'dts', 'aif', 'aifc', 'au', 'snd', 'ra', 'ram', 
+  '3ga', 'aa', 'aacp', 'wv', 'tta', 'mpc', 'shn', 'tak',
+  // ✅ Formats professionnels
+  'bwf', 'caf', 'ds2', 'dvf', 'gsm', 'm4p', 'mmf', 'mpc'
+];
   
   static const List<String> videoExtensions = [
-    'mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', 
-    '3gp', 'ts', 'm2ts', 'mpg', 'mpeg', 'vob', 'ogv'
-  ];
+  // ✅ Formats courants
+  'mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', 
+  '3gp', 'ts', 'm2ts', 'mpg', 'mpeg', 'vob', 'ogv',
+  // ✅ Formats moins courants
+  'asf', 'divx', 'f4v', 'm2v', 'm4b', 'mjp', 'mts', 
+  'rm', 'rmvb', 'swf', 'tp', 'trp', 'vro', 'wtv',
+  // ✅ Formats professionnels/rares
+  '264', '265', 'h264', 'h265', 'hevc', 'avc', 'mxf',
+  'prores', 'dnxhd', 'r3d', 'braw'
+];
 
   // ✅ PLUS DE CACHE - ON SCANNE TOUJOURS
   
@@ -27,17 +40,33 @@ class FileService {
     return false;
   }
 
-  Future<List<MediaFile>> scanAllFiles({bool forceRescan = false}) async {
+    Future<List<MediaFile>> scanAllFiles({bool forceRescan = false}) async {
     print('🔄 SCAN COMPLET DÉMARRÉ...');
     List<MediaFile> allFiles = [];
     
     if (Platform.isAndroid) {
-      // ✅ SCANNER TOUT LE STOCKAGE
+      // ✅ SCANNER LE STOCKAGE PRINCIPAL
       final root = Directory('/storage/emulated/0');
       if (await root.exists()) {
         print('📱 Scan de /storage/emulated/0');
         final files = await _scanRecursive(root, 0, 15);
         allFiles.addAll(files);
+      }
+      
+      // ✅ SCANNER AUSSI LE DOSSIER DE L'APP (MediaVault)
+      try {
+        final appDir = await getExternalStorageDirectory();
+        if (appDir != null) {
+          final mediaVaultDir = Directory('${appDir.path}/MediaVault');
+          if (await mediaVaultDir.exists()) {
+            print('📁 Scan du dossier MediaVault: ${mediaVaultDir.path}');
+            final files = await _scanRecursive(mediaVaultDir, 0, 5);
+            allFiles.addAll(files);
+            print('✅ ${files.length} fichiers trouvés dans MediaVault');
+          }
+        }
+      } catch (e) {
+        print('⚠️ Erreur scan MediaVault: $e');
       }
     } else if (Platform.isWindows) {
       final userProfile = Platform.environment['USERPROFILE'] ?? '';
@@ -45,6 +74,7 @@ class FileService {
         '$userProfile\\Music',
         '$userProfile\\Downloads',
         '$userProfile\\Videos',
+        '$userProfile\\Downloads\\MediaVault', // ✅ AJOUTÉ
       ];
       for (var dirPath in dirs) {
         final dir = Directory(dirPath);

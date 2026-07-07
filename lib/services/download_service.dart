@@ -7,15 +7,27 @@ class DownloadService {
   late final Directory _downloadDir;
   final yt = YoutubeExplode();
 
-  static const List<String> audioExtensions = [
-    'mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma', 'opus', 
-    'amr', 'aiff', 'alac', 'm4b', 'ape', 'mid', 'midi', 'mka', 'mp4'
-  ];
-  
-  static const List<String> videoExtensions = [
-    'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', 
-    '3gp', 'ts', 'm2ts', 'mpg', 'mpeg', 'vob', 'ogv'
-  ];
+ static const List<String> audioExtensions = [
+  // ✅ Formats courants
+  'mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma', 'opus', 
+  'amr', 'aiff', 'alac', 'm4b', 'ape', 'mid', 'midi', 'mka',
+  // ✅ Formats moins courants mais importants
+  'ac3', 'dts', 'aif', 'aifc', 'au', 'snd', 'ra', 'ram', 
+  '3ga', 'aa', 'aacp', 'wv', 'tta', 'mpc', 'shn', 'tak',
+  // ✅ Formats professionnels
+  'bwf', 'caf', 'ds2', 'dvf', 'gsm', 'm4p', 'mmf', 'mpc'
+];
+ static const List<String> videoExtensions = [
+  // ✅ Formats courants
+  'mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', 
+  '3gp', 'ts', 'm2ts', 'mpg', 'mpeg', 'vob', 'ogv',
+  // ✅ Formats moins courants
+  'asf', 'divx', 'f4v', 'm2v', 'm4b', 'mjp', 'mts', 
+  'rm', 'rmvb', 'swf', 'tp', 'trp', 'vro', 'wtv',
+  // ✅ Formats professionnels/rares
+  '264', '265', 'h264', 'h265', 'hevc', 'avc', 'mxf',
+  'prores', 'dnxhd', 'r3d', 'braw'
+];
 
   DownloadService() {
     _initDownloadDir();
@@ -24,7 +36,6 @@ class DownloadService {
   Future<void> _initDownloadDir() async {
     try {
       if (Platform.isAndroid) {
-        // ✅ UTILISER LE DOSSIER DE L'APP (accessible sans permission spéciale)
         final dir = await getExternalStorageDirectory();
         _downloadDir = Directory('${dir!.path}/MediaVault');
       } else if (Platform.isWindows) {
@@ -41,7 +52,6 @@ class DownloadService {
       print('✅ Dossier téléchargement: ${_downloadDir.path}');
     } catch (e) {
       print('❌ Erreur création dossier: $e');
-      // Fallback
       final docDir = await getApplicationDocumentsDirectory();
       _downloadDir = Directory('${docDir.path}/MediaVault');
       if (!_downloadDir.existsSync()) {
@@ -81,11 +91,23 @@ class DownloadService {
               String title = fileName.substring(0, dotIndex);
               String artist = 'Artiste inconnu';
               
-              bool isVideo = videoExtensions.contains(extension);
-              if (extension == 'mp4' && fileName.contains('_Audio')) {
+              // ✅ LOGIQUE DE DÉTECTION CORRIGÉE
+              bool isVideo = false;
+              
+              if (extension == 'mp4') {
+                // Pour MP4, vérifier le suffixe
+                if (fileName.contains('_Audio')) {
+                  isVideo = false; // C'est de l'audio
+                } else {
+                  isVideo = true; // C'est de la vidéo (avec ou sans _Video)
+                }
+              } else if (videoExtensions.contains(extension)) {
+                isVideo = true;
+              } else if (audioExtensions.contains(extension)) {
                 isVideo = false;
               }
               
+              // ✅ NETTOYER LE TITRE
               title = title.replaceAll('_Audio', '').replaceAll('_Video', '');
               
               if (title.contains(' - ')) {

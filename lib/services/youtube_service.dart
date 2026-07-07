@@ -3,22 +3,21 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 class YouTubeService {
   final yt = YoutubeExplode();
   
-  static const int _initialResults = 30;
-  static const int _loadMoreCount = 30;
-  static const int _maxResults = 200;
+  // ✅ AUGMENTER À 100 RÉSULTATS
+  static const int maxResults = 100;
 
-  Future<List<Map<String, dynamic>>> search(String query, {int maxResults = _initialResults}) async {
+  Future<List<Map<String, dynamic>>> search(String query, {int limit = maxResults}) async {
     List<Map<String, dynamic>> results = [];
     
     try {
-      print('🔍 Recherche: "$query" (max: $maxResults résultats)');
+      print('🔍 Recherche: "$query" (max: $limit résultats)');
       
-      // ✅ CORRECTION: search retourne un Future, pas un Stream
+      // ✅ RECHERCHER AVEC PLUS DE RÉSULTATS
       final searchList = await yt.search.search(query);
       
       int count = 0;
       for (final video in searchList) {
-        if (count >= maxResults) break;
+        if (count >= limit) break;
         
         results.add({
           'id': video.id.value,
@@ -43,15 +42,12 @@ class YouTubeService {
   Future<String?> getVideoUrl(String videoId) async {
     try {
       final manifest = await yt.videos.streamsClient.getManifest(videoId);
-      
-      // ✅ CORRECTION: Utiliser la méthode correcte pour cette version
       final videoStreams = manifest.muxed;
       if (videoStreams.isEmpty) {
         print('❌ Aucun stream vidéo trouvé');
         return null;
       }
       
-      // Prendre le stream avec le meilleur bitrate
       final bestStream = videoStreams.last;
       return bestStream.url.toString();
     } catch (e) {
