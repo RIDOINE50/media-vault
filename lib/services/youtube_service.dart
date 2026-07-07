@@ -3,21 +3,20 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 class YouTubeService {
   final yt = YoutubeExplode();
   
-  // ✅ AUGMENTER À 100 RÉSULTATS
-  static const int maxResults = 100;
+  static const int _maxResults = 100;
 
-  Future<List<Map<String, dynamic>>> search(String query, {int limit = maxResults}) async {
+  // ✅ AJOUT DU PARAMÈTRE maxResults
+  Future<List<Map<String, dynamic>>> search(String query, {int maxResults = 30}) async {
     List<Map<String, dynamic>> results = [];
     
     try {
-      print('🔍 Recherche: "$query" (max: $limit résultats)');
+      print('🔍 Recherche: "$query" (max: $maxResults résultats)');
       
-      // ✅ RECHERCHER AVEC PLUS DE RÉSULTATS
       final searchList = await yt.search.search(query);
       
       int count = 0;
       for (final video in searchList) {
-        if (count >= limit) break;
+        if (count >= maxResults) break;
         
         results.add({
           'id': video.id.value,
